@@ -1,0 +1,19 @@
+name: "PRs to Google Sheets"
+description: "Export GitHub pull requests to Google Sheets"
+inputs:
+  github-token:
+    description: "token"
+    required: true
+  spreadsheet-id:
+    description: "token"
+    required: true
+  range:
+    description: "token"
+    required: true
+  google-credentials:
+    description: "token"
+    required: true
+
+runs:
+  using: "node20"
+  main: "dist/index.js"
