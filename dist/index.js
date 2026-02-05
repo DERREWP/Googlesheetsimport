@@ -30220,17 +30220,17 @@ async function run() {
         const octokit = github.getOctokit(token);
         // 3. Get repo info from context
         const { owner, repo } = github.context.repo;
-        core.info(`Fetching PRs from ${owner}/${repo}...`);
+        core.info(`📦 Fetching PRs from ${owner}/${repo}...`);
         // 4. Fetch pull requests
         const { data: pullRequests } = await octokit.rest.pulls.list({
             owner,
             repo,
-            state: "all", // "open", "closed", or "all"
-            per_page: 100, // max per page
+            state: "all",
+            per_page: 100,
             sort: "updated",
             direction: "desc"
         });
-        core.info(`Found ${pullRequests.length} pull requests`);
+        core.info(`✅ Found ${pullRequests.length} pull requests`);
         // 5. Map to rows (for Google Sheets later)
         const rows = pullRequests.map(pr => {
             var _a, _b;
