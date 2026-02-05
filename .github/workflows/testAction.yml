@@ -1,22 +1,20 @@
 name: Test Action
 
 on:
-  workflow_dispatch:  # Manual trigger only
+  workflow_dispatch:
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    
+
     steps:
-      # 1. Checkout your action repo
       - name: Checkout
         uses: actions/checkout@v4
-      
-      # 2. Run your action (uses local coy)
+
       - name: Run my action
         uses: ./
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          spreadsheet-id: "test-sheet-123"
-          range: "Sheet1!A1"
-          google-credentials: "placeholder"
+          spreadsheet-id: "1TIdab5GcMAhWzhK6PF3wte7hK1PRrWI7XFf8yBsEjDQ"
+          range: "Sheet1!A1:G100"
+          google-credentials: ${{ secrets.GOOGLE_CREDENTIALS }}
