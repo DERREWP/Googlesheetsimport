@@ -12,7 +12,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       
-      # 2. Run your action (uses local copy)
+      # 2. Run your action (uses local coy)
       - name: Run my action
         uses: ./
         with:
