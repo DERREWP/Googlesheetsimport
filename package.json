@@ -4,8 +4,13 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "build": "tsc && ncc build dist/index.js -o dist",
-    "prepare": "npm run build"
+    "build": "tsc",
+    "pack": "esbuild dist/index.js --bundle --platform=node --target=node20 --outfile=dist/index.js --allow-overwrite",
+    "lint": "eslint src/",
+    "lint:fix": "eslint --fix src/",
+    "format": "prettier --write src/**/*.ts",
+    "format:check": "prettier --check src/**/*.ts",
+    "all": "npm run build && npm run lint:fix && npm run format && npm run pack"
   },
   "keywords": [],
   "author": "",
@@ -14,11 +19,20 @@
   "dependencies": {
     "@actions/core": "^1.10.0",
     "@actions/github": "^6.0.0",
-    "googleapis": "^171.3.0"
+    "@googleapis/sheets": "^13.0.1",
+    "google-auth-library": "^10.5.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.2",
     "@types/node": "^25.2.1",
+    "@typescript-eslint/eslint-plugin": "^8.54.0",
+    "@typescript-eslint/parser": "^8.54.0",
     "@vercel/ncc": "^0.38.4",
-    "typescript": "^5.9.3"
+    "esbuild": "^0.27.3",
+    "eslint": "^9.39.2",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.54.0"
   }
 }

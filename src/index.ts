@@ -1,16 +1,21 @@
 import * as core from "@actions/core";
 import * as github from "@actions/github";
+import { sheets as googleSheets } from "@googleapis/sheets";
+import { GoogleAuth } from "google-auth-library";
 
 async function run() {
   try {
     // 1. Get inputs
     const token = core.getInput("github-token", { required: true });
     const spreadsheetId = core.getInput("spreadsheet-id", { required: true });
+    const range = core.getInput("range", { required: true });
+    const googleCredentials = core.getInput("google-credentials", { required: true });
 
-    // 2. Create GitHub client
+    // 2. Hide credentials from logs
+    core.setSecret(googleCredentials);
+
+    // 3. Create GitHub client
     const octokit = github.getOctokit(token);
-
-    // 3. Get repo info from context
     const { owner, repo } = github.context.repo;
 
     core.info(`📦 Fetching PRs from ${owner}/${repo}...`);
@@ -27,27 +32,50 @@ async function run() {
 
     core.info(`✅ Found ${pullRequests.length} pull requests`);
 
-    // 5. Map to rows (for Google Sheets later)
-    const rows = pullRequests.map(pr => ({
-      number: pr.number,
-      title: pr.title,
-      author: pr.user?.login ?? "unknown",
-      state: pr.state,
-      createdAt: pr.created_at,
-      updatedAt: pr.updated_at,
-      url: pr.html_url
-    }));
+    // 5. Map to rows for Google Sheets
+    const rows = pullRequests.map((pr) => [
+      pr.number,
+      pr.title,
+      pr.user?.login ?? "unknown",
+      pr.state,
+      pr.created_at,
+      pr.updated_at,
+      pr.html_url
+    ]);
 
-    // 6. Log first few PRs (for testing)
-    core.info("📋 Sample PRs:");
-    rows.slice(0, 5).forEach(row => {
-      core.info(`  #${row.number}: ${row.title} (${row.state})`);
+    // 6. Add header row
+    const header = ["PR #", "Title", "Author", "State", "Created", "Updated", "URL"];
+    const sheetData = [header, ...rows];
+
+    core.info(`📊 Preparing to write ${sheetData.length} rows to Google Sheets...`);
+
+    // 7. Authenticate with Google
+    const credentials = JSON.parse(googleCredentials);
+    const auth = new GoogleAuth({
+      credentials,
+      scopes: ["https://www.googleapis.com/auth/spreadsheets"]
     });
 
-    // TODO: Next step - send to Google Sheets
-    core.info(`📊 Spreadsheet ID: ${spreadsheetId}`);
-    core.info("🚧 Google Sheets integration coming next...");
+    const sheets = googleSheets({ version: "v4", auth });
 
+    // 8. Clear existing data
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId,
+      range
+    });
+
+    // 9. Write new data
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range,
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: sheetData
+      }
+    });
+
+    core.info(`✅ Successfully wrote ${sheetData.length} rows to Google Sheets!`);
+    core.info(`📄 Sheet: https://docs.google.com/spreadsheets/d/${spreadsheetId}`);
   } catch (error) {
     core.setFailed((error as Error).message);
   }
