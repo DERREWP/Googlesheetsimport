@@ -1,0 +1,16 @@
+name: Test PR to Sheets
+
+on:
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch PRs
+        uses: DERREW/Googlesheetsimport@v0.1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          spreadsheet-id: "1TIdab5GcMAhWzhK6PF3wte7hK1PRrWI7XFf8yBsEjDQ"
+          range: "Sheet1!A1"
+          google-credentials: "placeholder"
