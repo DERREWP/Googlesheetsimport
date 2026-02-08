@@ -23926,75 +23926,110 @@ var require_github2 = __commonJS({
       };
     })();
     Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.fetchPRInfo = fetchPRInfo;
+    exports2.getPRInfo = getPRInfo;
     var core2 = __importStar2(require_core());
     var github = __importStar2(require_github());
-    function extractJiraTicket(title) {
-      const match = title.match(/ADV-\d+/i);
-      return match ? match[0].toUpperCase() : null;
+    function extractAllJiraTickets(text) {
+      const matches = text.match(/ADV-\d+/gi);
+      if (!matches)
+        return [];
+      return [...new Set(matches.map((m2) => m2.toUpperCase()))];
     }
-    function getEnvironmentFromTag(tagName) {
-      const tag = tagName.toLowerCase();
-      if (tag.startsWith("internal"))
-        return "internal";
-      if (tag.startsWith("stage"))
-        return "stage";
-      if (tag.startsWith("production") || tag.startsWith("prod"))
-        return "production";
-      return null;
+    function fromExplicitTickets(jiraTicketsInput, app, environment) {
+      const tickets = jiraTicketsInput.split(",").map((t2) => t2.trim().toUpperCase()).filter((t2) => t2.length > 0);
+      core2.info(`\u{1F4CB} Using explicit tickets: ${tickets.join(", ")}`);
+      return tickets.map((ticket) => ({
+        issue: ticket,
+        title: "",
+        author: "",
+        environment,
+        app,
+        url: ""
+      }));
     }
-    async function fetchPRInfo(token, app) {
+    async function fromTagComparison(octokit, owner, repo, baseTag, headTag, app, environment) {
       var _a, _b;
-      const octokit = github.getOctokit(token);
-      const { owner, repo } = github.context.repo;
-      core2.info(`\u{1F4E6} Fetching PRs from ${owner}/${repo}...`);
-      const { data: pullRequests } = await octokit.rest.pulls.list({
+      core2.info(`\u{1F50D} Comparing ${baseTag}...${headTag}`);
+      const { data: comparison } = await octokit.rest.repos.compareCommits({
         owner,
         repo,
-        state: "closed",
-        sort: "updated",
-        direction: "desc",
-        per_page: 100
+        base: baseTag,
+        head: headTag || "HEAD"
       });
-      const mergedPRs = pullRequests.filter((pr) => pr.merged_at !== null);
-      core2.info(`\u2705 Found ${mergedPRs.length} merged PRs`);
-      const { data: tags } = await octokit.rest.repos.listTags({
-        owner,
-        repo,
-        per_page: 100
-      });
-      core2.info(`\u{1F3F7}\uFE0F Found ${tags.length} tags`);
+      core2.info(`\u{1F4DD} Found ${comparison.commits.length} commits between tags`);
+      const prNumbers = /* @__PURE__ */ new Set();
+      for (const commit of comparison.commits) {
+        const prMatch = commit.commit.message.match(/Merge pull request #(\d+)/);
+        if (prMatch) {
+          prNumbers.add(parseInt(prMatch[1]));
+        }
+        const squashMatch = commit.commit.message.match(/#(\d+)\)?$/m);
+        if (squashMatch) {
+          prNumbers.add(parseInt(squashMatch[1]));
+        }
+      }
+      core2.info(`\u{1F517} Found ${prNumbers.size} merged PRs`);
       const prInfos = [];
-      for (const pr of mergedPRs) {
-        const issue = extractJiraTicket(pr.title);
-        if (!issue) {
-          core2.warning(`\u26A0\uFE0F Skipping PR #${pr.number}: No Jira ticket found in "${pr.title}"`);
-          continue;
-        }
-        const prMergeSha = pr.merge_commit_sha;
-        let environment = "internal";
-        for (const tag of tags) {
-          if (tag.commit.sha === prMergeSha) {
-            const env = getEnvironmentFromTag(tag.name);
-            if (env) {
-              environment = env;
-              core2.info(`\u{1F3F7}\uFE0F PR #${pr.number} (${issue}) tagged as ${tag.name} \u2192 ${environment}`);
-              break;
-            }
+      for (const prNumber of prNumbers) {
+        try {
+          const { data: pr } = await octokit.rest.pulls.get({
+            owner,
+            repo,
+            pull_number: prNumber
+          });
+          const tickets = extractAllJiraTickets(pr.title);
+          for (const ticket of tickets) {
+            prInfos.push({
+              issue: ticket,
+              title: pr.title,
+              author: (_b = (_a = pr.user) === null || _a === void 0 ? void 0 : _a.login) !== null && _b !== void 0 ? _b : "unknown",
+              environment,
+              app,
+              url: pr.html_url
+            });
           }
+        } catch {
+          core2.warning(`\u26A0\uFE0F Could not fetch PR #${prNumber}`);
         }
-        prInfos.push({
-          issue,
+      }
+      return prInfos;
+    }
+    async function fromPRContext(octokit, owner, repo, app, environment) {
+      var _a;
+      const prNumber = (_a = github.context.payload.pull_request) === null || _a === void 0 ? void 0 : _a.number;
+      if (!prNumber) {
+        core2.info("\u2139\uFE0F No PR context available");
+        return [];
+      }
+      core2.info(`\u{1F4E6} Extracting from PR #${prNumber}...`);
+      const { data: pr } = await octokit.rest.pulls.get({
+        owner,
+        repo,
+        pull_number: prNumber
+      });
+      const tickets = extractAllJiraTickets(pr.title);
+      return tickets.map((ticket) => {
+        var _a2, _b;
+        return {
+          issue: ticket,
           title: pr.title,
-          author: (_b = (_a = pr.user) === null || _a === void 0 ? void 0 : _a.login) !== null && _b !== void 0 ? _b : "unknown",
-          state: pr.state,
+          author: (_b = (_a2 = pr.user) === null || _a2 === void 0 ? void 0 : _a2.login) !== null && _b !== void 0 ? _b : "unknown",
           environment,
           app,
           url: pr.html_url
-        });
+        };
+      });
+    }
+    async function getPRInfo(token, app, environment, jiraTicketsInput, baseTag, headTag) {
+      const octokit = github.getOctokit(token);
+      const { owner, repo } = github.context.repo;
+      if (jiraTicketsInput.trim() !== "") {
+        return fromExplicitTickets(jiraTicketsInput, app, environment);
       }
-      core2.info(`\u{1F4CB} Processed ${prInfos.length} PRs with Jira tickets`);
-      return prInfos;
+      if (baseTag.trim() !== "") {
+        return fromTagComparison(octokit, owner, repo, baseTag, headTag, app, environment);
+      }
+      return fromPRContext(octokit, owner, repo, app, environment);
     }
   }
 });
@@ -46609,13 +46644,111 @@ var require_sheets = __commonJS({
     var core2 = __importStar2(require_core());
     var sheets_12 = require_build();
     var google_auth_library_1 = require_src6();
-    async function syncToSheets(credentials, spreadsheetId, sheetName, prInfos) {
-      var _a;
-      const auth = new google_auth_library_1.GoogleAuth({
+    function getAuth(credentials) {
+      return new google_auth_library_1.GoogleAuth({
         credentials: JSON.parse(credentials),
         scopes: ["https://www.googleapis.com/auth/spreadsheets"]
       });
+    }
+    async function getSheetId(sheets, spreadsheetId, sheetName) {
+      var _a, _b, _c;
+      const spreadsheet = await sheets.spreadsheets.get({
+        spreadsheetId
+      });
+      const sheet = (_a = spreadsheet.data.sheets) === null || _a === void 0 ? void 0 : _a.find((s2) => {
+        var _a2;
+        return ((_a2 = s2.properties) === null || _a2 === void 0 ? void 0 : _a2.title) === sheetName;
+      });
+      return (_c = (_b = sheet === null || sheet === void 0 ? void 0 : sheet.properties) === null || _b === void 0 ? void 0 : _b.sheetId) !== null && _c !== void 0 ? _c : null;
+    }
+    function getTodayDate() {
+      const now = /* @__PURE__ */ new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, "0");
+      const day = String(now.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
+    async function renameSheet(sheets, spreadsheetId, sheetId, newName) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          requests: [
+            {
+              updateSheetProperties: {
+                properties: {
+                  sheetId,
+                  title: newName
+                },
+                fields: "title"
+              }
+            }
+          ]
+        }
+      });
+    }
+    async function copySheet(sheets, spreadsheetId, sourceSheetId) {
+      const response = await sheets.spreadsheets.sheets.copyTo({
+        spreadsheetId,
+        sheetId: sourceSheetId,
+        requestBody: {
+          destinationSpreadsheetId: spreadsheetId
+        }
+      });
+      return response.data.sheetId;
+    }
+    async function moveSheetToFirst(sheets, spreadsheetId, sheetId) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          requests: [
+            {
+              updateSheetProperties: {
+                properties: {
+                  sheetId,
+                  index: 0
+                },
+                fields: "index"
+              }
+            }
+          ]
+        }
+      });
+    }
+    async function handleProductionCycle(sheets, spreadsheetId, sheetName) {
+      const today = getTodayDate();
+      core2.info(`\u{1F3ED} Production deploy detected`);
+      core2.info(`\u{1F4C5} Archiving "${sheetName}" as "${today}"`);
+      const nextSheetId = await getSheetId(sheets, spreadsheetId, sheetName);
+      if (nextSheetId === null) {
+        core2.setFailed(`\u274C Sheet "${sheetName}" not found`);
+        return;
+      }
+      const templateSheetId = await getSheetId(sheets, spreadsheetId, "Template");
+      if (templateSheetId === null) {
+        core2.setFailed('\u274C Sheet "Template" not found');
+        return;
+      }
+      await renameSheet(sheets, spreadsheetId, nextSheetId, today);
+      core2.info(`\u2705 Renamed "${sheetName}" \u2192 "${today}"`);
+      const newSheetId = await copySheet(sheets, spreadsheetId, templateSheetId);
+      core2.info("\u2705 Copied Deployment Template");
+      await renameSheet(sheets, spreadsheetId, newSheetId, sheetName);
+      core2.info(`\u2705 Renamed copy \u2192 "${sheetName}"`);
+      await moveSheetToFirst(sheets, spreadsheetId, newSheetId);
+      core2.info('\u2705 Moved new "Next" to first tab');
+    }
+    async function syncToSheets(credentials, spreadsheetId, sheetName, prInfos) {
+      const auth = getAuth(credentials);
       const sheets = (0, sheets_12.sheets)({ version: "v4", auth });
+      const environment = prInfos[0].environment;
+      await syncPRsToSheet(sheets, spreadsheetId, sheetName, prInfos);
+      if (environment === "production") {
+        await handleProductionCycle(sheets, spreadsheetId, sheetName);
+      }
+      core2.info(`\u{1F4C4} Sheet: https://docs.google.com/spreadsheets/d/${spreadsheetId}`);
+    }
+    async function syncPRsToSheet(sheets, spreadsheetId, sheetName, prInfos) {
+      var _a;
       const range = `${sheetName}!A:K`;
       core2.info("\u{1F4D6} Reading existing sheet data...");
       const existing = await sheets.spreadsheets.values.get({
@@ -46625,8 +46758,9 @@ var require_sheets = __commonJS({
       const existingRows = (_a = existing.data.values) !== null && _a !== void 0 ? _a : [];
       core2.info(`\u{1F4C4} Found ${existingRows.length} existing rows`);
       const ISSUE_COL = 0;
+      const HEADER_ROW = 4;
       const issueRowMap = /* @__PURE__ */ new Map();
-      for (let i2 = 1; i2 < existingRows.length; i2++) {
+      for (let i2 = HEADER_ROW; i2 < existingRows.length; i2++) {
         const issue = existingRows[i2][ISSUE_COL];
         if (issue) {
           issueRowMap.set(issue.toUpperCase(), i2 + 1);
@@ -46657,27 +46791,16 @@ var require_sheets = __commonJS({
               values: [
                 [
                   pr.issue,
-                  // Issue
                   "In Progress",
-                  // Status (default)
                   pr.author,
-                  // Assignee
                   pr.environment,
-                  // Environment
                   pr.app,
-                  // App
                   "",
-                  // Tested on
                   "",
-                  // Safe to deploy
                   "",
-                  // Is under Feature Flag?
                   "",
-                  // Activate Flag?
                   "",
-                  // Notes
                   ""
-                  // Affected pages
                 ]
               ]
             }
@@ -46685,8 +46808,7 @@ var require_sheets = __commonJS({
           newCount++;
         }
       }
-      core2.info(`\u2705 Done! Added ${newCount} new rows, updated ${updateCount} existing rows`);
-      core2.info(`\u{1F4C4} Sheet: https://docs.google.com/spreadsheets/d/${spreadsheetId}`);
+      core2.info(`\u2705 Done! Added ${newCount} new, updated ${updateCount} existing`);
     }
   }
 });
@@ -46739,11 +46861,23 @@ async function run() {
     const spreadsheetId = core.getInput("spreadsheet-id", { required: true });
     const googleCredentials = core.getInput("google-credentials", { required: true });
     const app = core.getInput("app", { required: true });
+    const environment = core.getInput("environment", { required: true });
     const sheetName = core.getInput("sheet-name") || "Next";
+    const jiraTickets = core.getInput("jira-tickets") || "";
+    const baseTag = core.getInput("base-tag") || "";
+    const headTag = core.getInput("head-tag") || "";
+    const validEnvs = ["internal", "stage", "production"];
+    if (!validEnvs.includes(environment.toLowerCase())) {
+      core.setFailed(`\u274C Invalid environment: "${environment}". Must be: ${validEnvs.join(", ")}`);
+      return;
+    }
     core.setSecret(googleCredentials);
-    const prInfos = await (0, github_1.fetchPRInfo)(token, app);
+    core.info(`\u{1F680} Environment: ${environment}`);
+    core.info(`\u{1F4F1} App: ${app}`);
+    core.info(`\u{1F4C4} Sheet: ${sheetName}`);
+    const prInfos = await (0, github_1.getPRInfo)(token, app, environment.toLowerCase(), jiraTickets, baseTag, headTag);
     if (prInfos.length === 0) {
-      core.info("\u2139\uFE0F No PRs with Jira tickets found. Nothing to sync.");
+      core.info("\u2139\uFE0F No Jira tickets found. Nothing to sync.");
       return;
     }
     await (0, sheets_1.syncToSheets)(googleCredentials, spreadsheetId, sheetName, prInfos);

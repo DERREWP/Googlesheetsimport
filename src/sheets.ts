@@ -3,6 +3,146 @@ import { sheets as googleSheets } from "@googleapis/sheets";
 import { GoogleAuth } from "google-auth-library";
 import { PRInfo } from "./types";
 
+function getAuth(credentials: string) {
+  return new GoogleAuth({
+    credentials: JSON.parse(credentials),
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+  });
+}
+
+// Get sheet ID by name
+async function getSheetId(
+  sheets: ReturnType<typeof googleSheets>,
+  spreadsheetId: string,
+  sheetName: string
+): Promise<number | null> {
+  const spreadsheet = await sheets.spreadsheets.get({
+    spreadsheetId
+  });
+
+  const sheet = spreadsheet.data.sheets?.find((s) => s.properties?.title === sheetName);
+
+  return sheet?.properties?.sheetId ?? null;
+}
+
+// Get today's date as string (YYYY-MM-DD)
+function getTodayDate(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+// Rename a sheet tab
+async function renameSheet(
+  sheets: ReturnType<typeof googleSheets>,
+  spreadsheetId: string,
+  sheetId: number,
+  newName: string
+): Promise<void> {
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [
+        {
+          updateSheetProperties: {
+            properties: {
+              sheetId,
+              title: newName
+            },
+            fields: "title"
+          }
+        }
+      ]
+    }
+  });
+}
+
+// Copy a sheet tab
+async function copySheet(
+  sheets: ReturnType<typeof googleSheets>,
+  spreadsheetId: string,
+  sourceSheetId: number
+): Promise<number> {
+  const response = await sheets.spreadsheets.sheets.copyTo({
+    spreadsheetId,
+    sheetId: sourceSheetId,
+    requestBody: {
+      destinationSpreadsheetId: spreadsheetId
+    }
+  });
+
+  return response.data.sheetId!;
+}
+
+// Move sheet to first position
+async function moveSheetToFirst(
+  sheets: ReturnType<typeof googleSheets>,
+  spreadsheetId: string,
+  sheetId: number
+): Promise<void> {
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [
+        {
+          updateSheetProperties: {
+            properties: {
+              sheetId,
+              index: 0
+            },
+            fields: "index"
+          }
+        }
+      ]
+    }
+  });
+}
+
+// Handle production deployment: archive "Next" and create new one
+async function handleProductionCycle(
+  sheets: ReturnType<typeof googleSheets>,
+  spreadsheetId: string,
+  sheetName: string
+): Promise<void> {
+  const today = getTodayDate();
+
+  core.info(`🏭 Production deploy detected`);
+  core.info(`📅 Archiving "${sheetName}" as "${today}"`);
+
+  // 1. Get "Next" sheet ID
+  const nextSheetId = await getSheetId(sheets, spreadsheetId, sheetName);
+  if (nextSheetId === null) {
+    core.setFailed(`❌ Sheet "${sheetName}" not found`);
+    return;
+  }
+
+  // 2. Get "Deployment Template" sheet ID
+  const templateSheetId = await getSheetId(sheets, spreadsheetId, "Template");
+  if (templateSheetId === null) {
+    core.setFailed('❌ Sheet "Template" not found');
+    return;
+  }
+
+  // 3. Rename "Next" to today's date
+  await renameSheet(sheets, spreadsheetId, nextSheetId, today);
+  core.info(`✅ Renamed "${sheetName}" → "${today}"`);
+
+  // 4. Copy "Deployment Template" as new sheet
+  const newSheetId = await copySheet(sheets, spreadsheetId, templateSheetId);
+  core.info("✅ Copied Deployment Template");
+
+  // 5. Rename the copy to "Next"
+  await renameSheet(sheets, spreadsheetId, newSheetId, sheetName);
+  core.info(`✅ Renamed copy → "${sheetName}"`);
+
+  // 6. Move new "Next" to first position
+  await moveSheetToFirst(sheets, spreadsheetId, newSheetId);
+  core.info('✅ Moved new "Next" to first tab');
+}
+
+// Main sync function
 export async function syncToSheets(
   credentials: string,
   spreadsheetId: string,
@@ -10,15 +150,33 @@ export async function syncToSheets(
   prInfos: PRInfo[]
 ): Promise<void> {
   // 1. Authenticate
-  const auth = new GoogleAuth({
-    credentials: JSON.parse(credentials),
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"]
-  });
-
+  const auth = getAuth(credentials);
   const sheets = googleSheets({ version: "v4", auth });
+
+  // 2. Get current environment from first PR
+  const environment = prInfos[0].environment;
+
+  // 3. Update PRs in the current "Next" sheet FIRST
+  await syncPRsToSheet(sheets, spreadsheetId, sheetName, prInfos);
+
+  // 4. If production: archive and create new cycle
+  if (environment === "production") {
+    await handleProductionCycle(sheets, spreadsheetId, sheetName);
+  }
+
+  core.info(`📄 Sheet: https://docs.google.com/spreadsheets/d/${spreadsheetId}`);
+}
+
+// Sync PR data to sheet
+async function syncPRsToSheet(
+  sheets: ReturnType<typeof googleSheets>,
+  spreadsheetId: string,
+  sheetName: string,
+  prInfos: PRInfo[]
+): Promise<void> {
   const range = `${sheetName}!A:K`;
 
-  // 2. Read existing data
+  // 1. Read existing data
   core.info("📖 Reading existing sheet data...");
   const existing = await sheets.spreadsheets.values.get({
     spreadsheetId,
@@ -28,20 +186,18 @@ export async function syncToSheets(
   const existingRows = existing.data.values ?? [];
   core.info(`📄 Found ${existingRows.length} existing rows`);
 
-  // 3. Find header row (should be row 1)
-  // Issue | Status | Asignee | Environment | App | Tested on | Safe to deploy | Is under Feature Flag? | Activate Flag? | Notes | Affected pages
+  // 2. Build issue → row map
   const ISSUE_COL = 0;
-
-  // 4. Build a map of existing issues → row number
+  const HEADER_ROW = 4;
   const issueRowMap = new Map<string, number>();
-  for (let i = 1; i < existingRows.length; i++) {
+
+  for (let i = HEADER_ROW; i < existingRows.length; i++) {
     const issue = existingRows[i][ISSUE_COL];
     if (issue) {
-      issueRowMap.set(issue.toUpperCase(), i + 1); // +1 for 1-based sheets index
+      issueRowMap.set(issue.toUpperCase(), i + 1);
     }
   }
-
-  // 5. Process each PR
+  // 3. Process each PR
   let newCount = 0;
   let updateCount = 0;
 
@@ -72,19 +228,7 @@ export async function syncToSheets(
         valueInputOption: "USER_ENTERED",
         requestBody: {
           values: [
-            [
-              pr.issue, // Issue
-              "In Progress", // Status (default)
-              pr.author, // Assignee
-              pr.environment, // Environment
-              pr.app, // App
-              "", // Tested on
-              "", // Safe to deploy
-              "", // Is under Feature Flag?
-              "", // Activate Flag?
-              "", // Notes
-              "" // Affected pages
-            ]
+            [pr.issue, "In Progress", pr.author, pr.environment, pr.app, "", "", "", "", "", ""]
           ]
         }
       });
@@ -93,6 +237,5 @@ export async function syncToSheets(
     }
   }
 
-  core.info(`✅ Done! Added ${newCount} new rows, updated ${updateCount} existing rows`);
-  core.info(`📄 Sheet: https://docs.google.com/spreadsheets/d/${spreadsheetId}`);
+  core.info(`✅ Done! Added ${newCount} new, updated ${updateCount} existing`);
 }

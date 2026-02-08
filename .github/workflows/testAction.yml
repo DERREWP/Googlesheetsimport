@@ -11,10 +11,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run my action
+      - name: Sync PRs to Sheet
         uses: ./
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          spreadsheet-id: "1TIdab5GcMAhWzhK6PF3wte7hK1PRrWI7XFf8yBsEjDQ"
+          spreadsheet-id: "YOUR_SPREADSHEET_ID"
           google-credentials: ${{ secrets.GOOGLE_CREDENTIALS }}
-          app: "web"
+          app: "my-app"
+          environment: "internal"
+          sheet-name: "Next"

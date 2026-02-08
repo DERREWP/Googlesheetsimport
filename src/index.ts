@@ -1,5 +1,5 @@
 import * as core from "@actions/core";
-import { fetchPRInfo } from "./github";
+import { getPRInfo } from "./github";
 import { syncToSheets } from "./sheets";
 
 async function run() {
@@ -9,20 +9,42 @@ async function run() {
     const spreadsheetId = core.getInput("spreadsheet-id", { required: true });
     const googleCredentials = core.getInput("google-credentials", { required: true });
     const app = core.getInput("app", { required: true });
+    const environment = core.getInput("environment", { required: true });
     const sheetName = core.getInput("sheet-name") || "Next";
+    const jiraTickets = core.getInput("jira-tickets") || "";
+    const baseTag = core.getInput("base-tag") || "";
+    const headTag = core.getInput("head-tag") || "";
 
-    // 2. Hide credentials
-    core.setSecret(googleCredentials);
-
-    // 3. Fetch PR info
-    const prInfos = await fetchPRInfo(token, app);
-
-    if (prInfos.length === 0) {
-      core.info("ℹ️ No PRs with Jira tickets found. Nothing to sync.");
+    // 2. Validate environment
+    const validEnvs = ["internal", "stage", "production"];
+    if (!validEnvs.includes(environment.toLowerCase())) {
+      core.setFailed(`❌ Invalid environment: "${environment}". Must be: ${validEnvs.join(", ")}`);
       return;
     }
 
-    // 4. Sync to Google Sheets
+    // 3. Hide credentials
+    core.setSecret(googleCredentials);
+
+    core.info(`🚀 Environment: ${environment}`);
+    core.info(`📱 App: ${app}`);
+    core.info(`📄 Sheet: ${sheetName}`);
+
+    // 4. Get PR info
+    const prInfos = await getPRInfo(
+      token,
+      app,
+      environment.toLowerCase(),
+      jiraTickets,
+      baseTag,
+      headTag
+    );
+
+    if (prInfos.length === 0) {
+      core.info("ℹ️ No Jira tickets found. Nothing to sync.");
+      return;
+    }
+
+    // 5. Sync to Google Sheets
     await syncToSheets(googleCredentials, spreadsheetId, sheetName, prInfos);
   } catch (error) {
     core.setFailed((error as Error).message);

@@ -12,12 +12,27 @@ inputs:
     description: "Google Service Account JSON"
     required: true
   app:
-    description: "Application name (e.g., frontend, backend)"
+    description: "Application name"
+    required: true
+  environment:
+    description: "Deployment environment (internal, stage, production)"
     required: true
   sheet-name:
     description: "Sheet tab name"
     required: false
     default: "Next"
+  base-tag:
+    description: "Previous deployment tag to compare from (e.g., internal-100)"
+    required: false
+    default: ""
+  head-tag:
+    description: "Current deployment tag (e.g., internal-101)"
+    required: false
+    default: ""
+  jira-tickets:
+    description: "Override: comma-separated Jira tickets (e.g., ADV-123,ADV-456)"
+    required: false
+    default: ""
 
 runs:
   using: "node20"
