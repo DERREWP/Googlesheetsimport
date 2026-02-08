@@ -23884,6 +23884,121 @@ var require_github = __commonJS({
   }
 });
 
+// build/github.js
+var require_github2 = __commonJS({
+  "build/github.js"(exports2) {
+    "use strict";
+    var __createBinding2 = exports2 && exports2.__createBinding || (Object.create ? (function(o, m2, k, k2) {
+      if (k2 === void 0) k2 = k;
+      var desc = Object.getOwnPropertyDescriptor(m2, k);
+      if (!desc || ("get" in desc ? !m2.__esModule : desc.writable || desc.configurable)) {
+        desc = { enumerable: true, get: function() {
+          return m2[k];
+        } };
+      }
+      Object.defineProperty(o, k2, desc);
+    }) : (function(o, m2, k, k2) {
+      if (k2 === void 0) k2 = k;
+      o[k2] = m2[k];
+    }));
+    var __setModuleDefault2 = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
+      Object.defineProperty(o, "default", { enumerable: true, value: v });
+    }) : function(o, v) {
+      o["default"] = v;
+    });
+    var __importStar2 = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
+      var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function(o2) {
+          var ar = [];
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
+          return ar;
+        };
+        return ownKeys(o);
+      };
+      return function(mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) {
+          for (var k = ownKeys(mod), i2 = 0; i2 < k.length; i2++) if (k[i2] !== "default") __createBinding2(result, mod, k[i2]);
+        }
+        __setModuleDefault2(result, mod);
+        return result;
+      };
+    })();
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.fetchPRInfo = fetchPRInfo;
+    var core2 = __importStar2(require_core());
+    var github = __importStar2(require_github());
+    function extractJiraTicket(title) {
+      const match = title.match(/ADV-\d+/i);
+      return match ? match[0].toUpperCase() : null;
+    }
+    function getEnvironmentFromTag(tagName) {
+      const tag = tagName.toLowerCase();
+      if (tag.startsWith("internal"))
+        return "internal";
+      if (tag.startsWith("stage"))
+        return "stage";
+      if (tag.startsWith("production") || tag.startsWith("prod"))
+        return "production";
+      return null;
+    }
+    async function fetchPRInfo(token, app) {
+      var _a, _b;
+      const octokit = github.getOctokit(token);
+      const { owner, repo } = github.context.repo;
+      core2.info(`\u{1F4E6} Fetching PRs from ${owner}/${repo}...`);
+      const { data: pullRequests } = await octokit.rest.pulls.list({
+        owner,
+        repo,
+        state: "closed",
+        sort: "updated",
+        direction: "desc",
+        per_page: 100
+      });
+      const mergedPRs = pullRequests.filter((pr) => pr.merged_at !== null);
+      core2.info(`\u2705 Found ${mergedPRs.length} merged PRs`);
+      const { data: tags } = await octokit.rest.repos.listTags({
+        owner,
+        repo,
+        per_page: 100
+      });
+      core2.info(`\u{1F3F7}\uFE0F Found ${tags.length} tags`);
+      const prInfos = [];
+      for (const pr of mergedPRs) {
+        const issue = extractJiraTicket(pr.title);
+        if (!issue) {
+          core2.warning(`\u26A0\uFE0F Skipping PR #${pr.number}: No Jira ticket found in "${pr.title}"`);
+          continue;
+        }
+        const prMergeSha = pr.merge_commit_sha;
+        let environment = "internal";
+        for (const tag of tags) {
+          if (tag.commit.sha === prMergeSha) {
+            const env = getEnvironmentFromTag(tag.name);
+            if (env) {
+              environment = env;
+              core2.info(`\u{1F3F7}\uFE0F PR #${pr.number} (${issue}) tagged as ${tag.name} \u2192 ${environment}`);
+              break;
+            }
+          }
+        }
+        prInfos.push({
+          issue,
+          title: pr.title,
+          author: (_b = (_a = pr.user) === null || _a === void 0 ? void 0 : _a.login) !== null && _b !== void 0 ? _b : "unknown",
+          state: pr.state,
+          environment,
+          app,
+          url: pr.html_url
+        });
+      }
+      core2.info(`\u{1F4CB} Processed ${prInfos.length} PRs with Jira tickets`);
+      return prInfos;
+    }
+  }
+});
+
 // node_modules/extend/index.js
 var require_extend = __commonJS({
   "node_modules/extend/index.js"(exports2, module2) {
@@ -45497,22 +45612,22 @@ var require_authplus = __commonJS({
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.AuthPlus = void 0;
-    var google_auth_library_12 = require_src6();
-    var AuthPlus = class extends google_auth_library_12.GoogleAuth {
-      JWT = google_auth_library_12.JWT;
-      Compute = google_auth_library_12.Compute;
-      OAuth2 = google_auth_library_12.OAuth2Client;
-      GoogleAuth = google_auth_library_12.GoogleAuth;
-      AwsClient = google_auth_library_12.AwsClient;
-      IdentityPoolClient = google_auth_library_12.IdentityPoolClient;
-      ExternalAccountClient = google_auth_library_12.ExternalAccountClient;
+    var google_auth_library_1 = require_src6();
+    var AuthPlus = class extends google_auth_library_1.GoogleAuth {
+      JWT = google_auth_library_1.JWT;
+      Compute = google_auth_library_1.Compute;
+      OAuth2 = google_auth_library_1.OAuth2Client;
+      GoogleAuth = google_auth_library_1.GoogleAuth;
+      AwsClient = google_auth_library_1.AwsClient;
+      IdentityPoolClient = google_auth_library_1.IdentityPoolClient;
+      ExternalAccountClient = google_auth_library_1.ExternalAccountClient;
       _cachedAuth;
       /**
        * Override getClient(), memoizing an instance of auth for
        * subsequent calls to getProjectId().
        */
       async getClient(options) {
-        this._cachedAuth = new google_auth_library_12.GoogleAuth(options);
+        this._cachedAuth = new google_auth_library_1.GoogleAuth(options);
         return this._cachedAuth.getClient();
       }
       getProjectId(callback) {
@@ -45793,33 +45908,33 @@ var require_src7 = __commonJS({
     exports2.Endpoint = exports2.Discovery = exports2.AuthPlus = exports2.createAPIRequest = exports2.getAPI = exports2.GaxiosError = exports2.Gaxios = exports2.AwsClient = exports2.IdentityPoolClient = exports2.BaseExternalAccountClient = exports2.ExternalAccountClient = exports2.GoogleAuth = exports2.UserRefreshClient = exports2.Compute = exports2.JWT = exports2.OAuth2Client = exports2.gaxios = exports2.googleAuthLibrary = void 0;
     exports2.googleAuthLibrary = require_src6();
     exports2.gaxios = require_src2();
-    var google_auth_library_12 = require_src6();
+    var google_auth_library_1 = require_src6();
     Object.defineProperty(exports2, "OAuth2Client", { enumerable: true, get: function() {
-      return google_auth_library_12.OAuth2Client;
+      return google_auth_library_1.OAuth2Client;
     } });
     Object.defineProperty(exports2, "JWT", { enumerable: true, get: function() {
-      return google_auth_library_12.JWT;
+      return google_auth_library_1.JWT;
     } });
     Object.defineProperty(exports2, "Compute", { enumerable: true, get: function() {
-      return google_auth_library_12.Compute;
+      return google_auth_library_1.Compute;
     } });
     Object.defineProperty(exports2, "UserRefreshClient", { enumerable: true, get: function() {
-      return google_auth_library_12.UserRefreshClient;
+      return google_auth_library_1.UserRefreshClient;
     } });
     Object.defineProperty(exports2, "GoogleAuth", { enumerable: true, get: function() {
-      return google_auth_library_12.GoogleAuth;
+      return google_auth_library_1.GoogleAuth;
     } });
     Object.defineProperty(exports2, "ExternalAccountClient", { enumerable: true, get: function() {
-      return google_auth_library_12.ExternalAccountClient;
+      return google_auth_library_1.ExternalAccountClient;
     } });
     Object.defineProperty(exports2, "BaseExternalAccountClient", { enumerable: true, get: function() {
-      return google_auth_library_12.BaseExternalAccountClient;
+      return google_auth_library_1.BaseExternalAccountClient;
     } });
     Object.defineProperty(exports2, "IdentityPoolClient", { enumerable: true, get: function() {
-      return google_auth_library_12.IdentityPoolClient;
+      return google_auth_library_1.IdentityPoolClient;
     } });
     Object.defineProperty(exports2, "AwsClient", { enumerable: true, get: function() {
-      return google_auth_library_12.AwsClient;
+      return google_auth_library_1.AwsClient;
     } });
     var gaxios_1 = require_src2();
     Object.defineProperty(exports2, "Gaxios", { enumerable: true, get: function() {
@@ -46448,7 +46563,135 @@ var require_build = __commonJS({
   }
 });
 
-// dist/index.js
+// build/sheets.js
+var require_sheets = __commonJS({
+  "build/sheets.js"(exports2) {
+    "use strict";
+    var __createBinding2 = exports2 && exports2.__createBinding || (Object.create ? (function(o, m2, k, k2) {
+      if (k2 === void 0) k2 = k;
+      var desc = Object.getOwnPropertyDescriptor(m2, k);
+      if (!desc || ("get" in desc ? !m2.__esModule : desc.writable || desc.configurable)) {
+        desc = { enumerable: true, get: function() {
+          return m2[k];
+        } };
+      }
+      Object.defineProperty(o, k2, desc);
+    }) : (function(o, m2, k, k2) {
+      if (k2 === void 0) k2 = k;
+      o[k2] = m2[k];
+    }));
+    var __setModuleDefault2 = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
+      Object.defineProperty(o, "default", { enumerable: true, value: v });
+    }) : function(o, v) {
+      o["default"] = v;
+    });
+    var __importStar2 = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
+      var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function(o2) {
+          var ar = [];
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
+          return ar;
+        };
+        return ownKeys(o);
+      };
+      return function(mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) {
+          for (var k = ownKeys(mod), i2 = 0; i2 < k.length; i2++) if (k[i2] !== "default") __createBinding2(result, mod, k[i2]);
+        }
+        __setModuleDefault2(result, mod);
+        return result;
+      };
+    })();
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.syncToSheets = syncToSheets;
+    var core2 = __importStar2(require_core());
+    var sheets_12 = require_build();
+    var google_auth_library_1 = require_src6();
+    async function syncToSheets(credentials, spreadsheetId, sheetName, prInfos) {
+      var _a;
+      const auth = new google_auth_library_1.GoogleAuth({
+        credentials: JSON.parse(credentials),
+        scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+      });
+      const sheets = (0, sheets_12.sheets)({ version: "v4", auth });
+      const range = `${sheetName}!A:K`;
+      core2.info("\u{1F4D6} Reading existing sheet data...");
+      const existing = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range
+      });
+      const existingRows = (_a = existing.data.values) !== null && _a !== void 0 ? _a : [];
+      core2.info(`\u{1F4C4} Found ${existingRows.length} existing rows`);
+      const ISSUE_COL = 0;
+      const issueRowMap = /* @__PURE__ */ new Map();
+      for (let i2 = 1; i2 < existingRows.length; i2++) {
+        const issue = existingRows[i2][ISSUE_COL];
+        if (issue) {
+          issueRowMap.set(issue.toUpperCase(), i2 + 1);
+        }
+      }
+      let newCount = 0;
+      let updateCount = 0;
+      for (const pr of prInfos) {
+        const existingRow = issueRowMap.get(pr.issue.toUpperCase());
+        if (existingRow) {
+          core2.info(`\u{1F504} Updating ${pr.issue} \u2192 ${pr.environment}`);
+          await sheets.spreadsheets.values.update({
+            spreadsheetId,
+            range: `${sheetName}!D${existingRow}`,
+            valueInputOption: "USER_ENTERED",
+            requestBody: {
+              values: [[pr.environment]]
+            }
+          });
+          updateCount++;
+        } else {
+          core2.info(`\u2795 Adding new row for ${pr.issue}`);
+          await sheets.spreadsheets.values.append({
+            spreadsheetId,
+            range: `${sheetName}!A:K`,
+            valueInputOption: "USER_ENTERED",
+            requestBody: {
+              values: [
+                [
+                  pr.issue,
+                  // Issue
+                  "In Progress",
+                  // Status (default)
+                  pr.author,
+                  // Assignee
+                  pr.environment,
+                  // Environment
+                  pr.app,
+                  // App
+                  "",
+                  // Tested on
+                  "",
+                  // Safe to deploy
+                  "",
+                  // Is under Feature Flag?
+                  "",
+                  // Activate Flag?
+                  "",
+                  // Notes
+                  ""
+                  // Affected pages
+                ]
+              ]
+            }
+          });
+          newCount++;
+        }
+      }
+      core2.info(`\u2705 Done! Added ${newCount} new rows, updated ${updateCount} existing rows`);
+      core2.info(`\u{1F4C4} Sheet: https://docs.google.com/spreadsheets/d/${spreadsheetId}`);
+    }
+  }
+});
+
+// build/index.js
 var __createBinding = exports && exports.__createBinding || (Object.create ? (function(o, m2, k, k2) {
   if (k2 === void 0) k2 = k;
   var desc = Object.getOwnPropertyDescriptor(m2, k);
@@ -46488,63 +46731,22 @@ var __importStar = exports && exports.__importStar || /* @__PURE__ */ (function(
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 var core = __importStar(require_core());
-var github = __importStar(require_github());
-var sheets_1 = require_build();
-var google_auth_library_1 = require_src6();
+var github_1 = require_github2();
+var sheets_1 = require_sheets();
 async function run() {
   try {
     const token = core.getInput("github-token", { required: true });
     const spreadsheetId = core.getInput("spreadsheet-id", { required: true });
-    const range = core.getInput("range", { required: true });
     const googleCredentials = core.getInput("google-credentials", { required: true });
+    const app = core.getInput("app", { required: true });
+    const sheetName = core.getInput("sheet-name") || "Next";
     core.setSecret(googleCredentials);
-    const octokit = github.getOctokit(token);
-    const { owner, repo } = github.context.repo;
-    core.info(`\u{1F4E6} Fetching PRs from ${owner}/${repo}...`);
-    const { data: pullRequests } = await octokit.rest.pulls.list({
-      owner,
-      repo,
-      state: "all",
-      per_page: 100,
-      sort: "updated",
-      direction: "desc"
-    });
-    core.info(`\u2705 Found ${pullRequests.length} pull requests`);
-    const rows = pullRequests.map((pr) => {
-      var _a, _b;
-      return [
-        pr.number,
-        pr.title,
-        (_b = (_a = pr.user) === null || _a === void 0 ? void 0 : _a.login) !== null && _b !== void 0 ? _b : "unknown",
-        pr.state,
-        pr.created_at,
-        pr.updated_at,
-        pr.html_url
-      ];
-    });
-    const header = ["PR #", "Title", "Author", "State", "Created", "Updated", "URL"];
-    const sheetData = [header, ...rows];
-    core.info(`\u{1F4CA} Preparing to write ${sheetData.length} rows to Google Sheets...`);
-    const credentials = JSON.parse(googleCredentials);
-    const auth = new google_auth_library_1.GoogleAuth({
-      credentials,
-      scopes: ["https://www.googleapis.com/auth/spreadsheets"]
-    });
-    const sheets = (0, sheets_1.sheets)({ version: "v4", auth });
-    await sheets.spreadsheets.values.clear({
-      spreadsheetId,
-      range
-    });
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range,
-      valueInputOption: "USER_ENTERED",
-      requestBody: {
-        values: sheetData
-      }
-    });
-    core.info(`\u2705 Successfully wrote ${sheetData.length} rows to Google Sheets!`);
-    core.info(`\u{1F4C4} Sheet: https://docs.google.com/spreadsheets/d/${spreadsheetId}`);
+    const prInfos = await (0, github_1.fetchPRInfo)(token, app);
+    if (prInfos.length === 0) {
+      core.info("\u2139\uFE0F No PRs with Jira tickets found. Nothing to sync.");
+      return;
+    }
+    await (0, sheets_1.syncToSheets)(googleCredentials, spreadsheetId, sheetName, prInfos);
   } catch (error) {
     core.setFailed(error.message);
   }

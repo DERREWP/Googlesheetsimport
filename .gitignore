@@ -7,6 +7,9 @@ node_modules
 # Build artifacts
 dist/*.js.map
 
+# TypeScript compiled (temp)
+build/
+
 # Secrets
 .env
 .env.local
@@ -27,3 +30,7 @@ Thumbs.db
 
 # ESLint cache
 .eslintcache
+
+#Secrets for Act
+.secrets
+google_cred.json

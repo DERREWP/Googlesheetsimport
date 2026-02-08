@@ -2,10 +2,11 @@
   "compilerOptions": {
     "target": "ES2019",
     "module": "commonjs",
-    "outDir": "dist",
+    "outDir": "build",
     "rootDir": "src",
     "strict": true,
     "esModuleInterop": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "ignoreDeprecations": "5.0"
   }
 }

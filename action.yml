@@ -1,18 +1,23 @@
 name: "PRs to Google Sheets"
-description: "Export GitHub pull requests to Google Sheets"
+description: "Track PR deployments across environments in Google Sheets"
+
 inputs:
   github-token:
-    description: "token"
+    description: "GitHub token"
     required: true
   spreadsheet-id:
-    description: "token"
-    required: true
-  range:
-    description: "token"
+    description: "Google Spreadsheet ID"
     required: true
   google-credentials:
-    description: "token"
+    description: "Google Service Account JSON"
     required: true
+  app:
+    description: "Application name (e.g., frontend, backend)"
+    required: true
+  sheet-name:
+    description: "Sheet tab name"
+    required: false
+    default: "Next"
 
 runs:
   using: "node20"

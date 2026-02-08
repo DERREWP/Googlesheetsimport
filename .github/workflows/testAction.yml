@@ -15,6 +15,6 @@ jobs:
         uses: ./
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          spreadsheet-id: "1TIdab5GcMAhWzhK6PF3wte7hK1PRrWI7XFf8yBsEjDQ"
-          range: "Sheet1!A1:G100"
+          spreadsheet-id: "YOUR_SPREADSHEET_ID"
           google-credentials: ${{ secrets.GOOGLE_CREDENTIALS }}
+          app: "web"
