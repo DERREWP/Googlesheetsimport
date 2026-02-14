@@ -46650,11 +46650,17 @@ var require_sheets = __commonJS({
         scopes: ["https://www.googleapis.com/auth/spreadsheets"]
       });
     }
+    async function getAllSheetNames(sheets, spreadsheetId) {
+      var _a, _b;
+      const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+      return (_b = (_a = spreadsheet.data.sheets) === null || _a === void 0 ? void 0 : _a.map((s2) => {
+        var _a2, _b2;
+        return (_b2 = (_a2 = s2.properties) === null || _a2 === void 0 ? void 0 : _a2.title) !== null && _b2 !== void 0 ? _b2 : "";
+      })) !== null && _b !== void 0 ? _b : [];
+    }
     async function getSheetId(sheets, spreadsheetId, sheetName) {
       var _a, _b, _c;
-      const spreadsheet = await sheets.spreadsheets.get({
-        spreadsheetId
-      });
+      const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
       const sheet = (_a = spreadsheet.data.sheets) === null || _a === void 0 ? void 0 : _a.find((s2) => {
         var _a2;
         return ((_a2 = s2.properties) === null || _a2 === void 0 ? void 0 : _a2.title) === sheetName;
@@ -46667,6 +46673,16 @@ var require_sheets = __commonJS({
       const month = String(now.getMonth() + 1).padStart(2, "0");
       const day = String(now.getDate()).padStart(2, "0");
       return `${year}-${month}-${day}`;
+    }
+    function getUniqueTabName(baseName, existingNames) {
+      if (!existingNames.includes(baseName)) {
+        return baseName;
+      }
+      let counter = 2;
+      while (existingNames.includes(`${baseName} (${counter})`)) {
+        counter++;
+      }
+      return `${baseName} (${counter})`;
     }
     async function renameSheet(sheets, spreadsheetId, sheetId, newName) {
       await sheets.spreadsheets.batchUpdate({
@@ -46715,16 +46731,12 @@ var require_sheets = __commonJS({
       });
     }
     async function handleProductionCycle(sheets, spreadsheetId, sheetName) {
-      var _a;
       const today = getTodayDate();
-      core2.info(`\u{1F3ED} Production deploy detected`);
-      core2.info(`\u{1F4C5} Archiving "${sheetName}" as "${today}"`);
-      const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
-      const sheetNames = (_a = spreadsheet.data.sheets) === null || _a === void 0 ? void 0 : _a.map((s2) => {
-        var _a2;
-        return (_a2 = s2.properties) === null || _a2 === void 0 ? void 0 : _a2.title;
-      });
-      core2.info(`\u{1F4D1} Available sheets: ${sheetNames === null || sheetNames === void 0 ? void 0 : sheetNames.join(", ")}`);
+      core2.info("\u{1F3ED} Production deploy detected");
+      const existingNames = await getAllSheetNames(sheets, spreadsheetId);
+      core2.info(`\u{1F4D1} Existing sheets: ${existingNames.join(", ")}`);
+      const archiveName = getUniqueTabName(today, existingNames);
+      core2.info(`\u{1F4C5} Archive name: "${archiveName}"`);
       const nextSheetId = await getSheetId(sheets, spreadsheetId, sheetName);
       if (nextSheetId === null) {
         core2.setFailed(`\u274C Sheet "${sheetName}" not found`);
@@ -46735,42 +46747,26 @@ var require_sheets = __commonJS({
         core2.setFailed('\u274C Sheet "Template" not found');
         return;
       }
-      await renameSheet(sheets, spreadsheetId, nextSheetId, today);
-      core2.info(`\u2705 Renamed "${sheetName}" \u2192 "${today}"`);
+      await renameSheet(sheets, spreadsheetId, nextSheetId, archiveName);
+      core2.info(`\u2705 Renamed "${sheetName}" \u2192 "${archiveName}"`);
       const newSheetId = await copySheet(sheets, spreadsheetId, templateSheetId);
-      core2.info("\u2705 Copied Deployment Template");
+      core2.info("\u2705 Copied Template");
       await renameSheet(sheets, spreadsheetId, newSheetId, sheetName);
       core2.info(`\u2705 Renamed copy \u2192 "${sheetName}"`);
       await moveSheetToFirst(sheets, spreadsheetId, newSheetId);
       core2.info('\u2705 Moved new "Next" to first tab');
     }
-    async function syncToSheets(credentials, spreadsheetId, sheetName, prInfos) {
-      const auth = getAuth(credentials);
-      const sheets = (0, sheets_12.sheets)({ version: "v4", auth });
-      const environment = prInfos[0].environment;
-      await syncPRsToSheet(sheets, spreadsheetId, sheetName, prInfos);
-      if (environment === "production") {
-        await handleProductionCycle(sheets, spreadsheetId, sheetName);
-      }
-      core2.info(`\u{1F4C4} Sheet: https://docs.google.com/spreadsheets/d/${spreadsheetId}`);
-    }
     async function syncPRsToSheet(sheets, spreadsheetId, sheetName, prInfos) {
-      var _a, _b;
+      var _a;
       const range = `${sheetName}!A:K`;
       core2.info(`\u{1F50D} Spreadsheet ID: ${spreadsheetId}`);
       core2.info(`\u{1F50D} Sheet name: ${sheetName}`);
       core2.info(`\u{1F50D} Range: ${range}`);
       try {
-        const spreadsheet = await sheets.spreadsheets.get({
-          spreadsheetId
-        });
-        const sheetNames = (_a = spreadsheet.data.sheets) === null || _a === void 0 ? void 0 : _a.map((s2) => {
-          var _a2;
-          return (_a2 = s2.properties) === null || _a2 === void 0 ? void 0 : _a2.title;
-        });
-        core2.info(`\u{1F4D1} Available sheets: ${sheetNames === null || sheetNames === void 0 ? void 0 : sheetNames.join(", ")}`);
-        if (!(sheetNames === null || sheetNames === void 0 ? void 0 : sheetNames.includes(sheetName))) {
-          core2.setFailed(`\u274C Sheet "${sheetName}" not found. Available: ${sheetNames === null || sheetNames === void 0 ? void 0 : sheetNames.join(", ")}`);
+        const sheetNames = await getAllSheetNames(sheets, spreadsheetId);
+        core2.info(`\u{1F4D1} Available sheets: ${sheetNames.join(", ")}`);
+        if (!sheetNames.includes(sheetName)) {
+          core2.setFailed(`\u274C Sheet "${sheetName}" not found. Available: ${sheetNames.join(", ")}`);
           return;
         }
       } catch (error) {
@@ -46785,23 +46781,28 @@ var require_sheets = __commonJS({
         spreadsheetId,
         range
       });
-      const existingRows = (_b = existing.data.values) !== null && _b !== void 0 ? _b : [];
+      const existingRows = (_a = existing.data.values) !== null && _a !== void 0 ? _a : [];
       core2.info(`\u{1F4C4} Found ${existingRows.length} existing rows`);
       const ISSUE_COL = 0;
       const HEADER_ROW = 4;
       const issueRowMap = /* @__PURE__ */ new Map();
       for (let i2 = HEADER_ROW; i2 < existingRows.length; i2++) {
-        const issue = existingRows[i2][ISSUE_COL];
-        if (issue) {
-          issueRowMap.set(issue.toUpperCase(), i2 + 1);
+        const row = existingRows[i2];
+        if (row && row[ISSUE_COL]) {
+          const issue = String(row[ISSUE_COL]).trim().toUpperCase();
+          const sheetRow = i2 + 1;
+          issueRowMap.set(issue, sheetRow);
+          core2.info(`\u{1F4CD} Found existing issue: ${issue} at row ${sheetRow}`);
         }
       }
+      core2.info(`\u{1F4CA} Total tracked issues: ${issueRowMap.size}`);
       let newCount = 0;
       let updateCount = 0;
       for (const pr of prInfos) {
-        const existingRow = issueRowMap.get(pr.issue.toUpperCase());
+        const issueKey = pr.issue.trim().toUpperCase();
+        const existingRow = issueRowMap.get(issueKey);
         if (existingRow) {
-          core2.info(`\u{1F504} Updating ${pr.issue} \u2192 ${pr.environment}`);
+          core2.info(`\u{1F504} Updating ${issueKey} at row ${existingRow} \u2192 ${pr.environment}`);
           await sheets.spreadsheets.values.update({
             spreadsheetId,
             range: `${sheetName}!D${existingRow}`,
@@ -46812,21 +46813,45 @@ var require_sheets = __commonJS({
           });
           updateCount++;
         } else {
-          core2.info(`\u2795 Adding new row for ${pr.issue}`);
+          core2.info(`\u2795 Adding new row for ${issueKey}`);
           await sheets.spreadsheets.values.append({
             spreadsheetId,
             range: `${sheetName}!A:K`,
             valueInputOption: "USER_ENTERED",
             requestBody: {
               values: [
-                [pr.issue, "In Progress", pr.author, pr.environment, pr.app, "", "", "", "", "", ""]
+                [
+                  pr.issue,
+                  "In Progress",
+                  pr.author,
+                  pr.environment,
+                  pr.app,
+                  "",
+                  "",
+                  "",
+                  "",
+                  "",
+                  ""
+                ]
               ]
             }
           });
+          const newRowIndex = existingRows.length + newCount + 1;
+          issueRowMap.set(issueKey, newRowIndex);
           newCount++;
         }
       }
       core2.info(`\u2705 Done! Added ${newCount} new, updated ${updateCount} existing`);
+    }
+    async function syncToSheets(credentials, spreadsheetId, sheetName, prInfos) {
+      const auth = getAuth(credentials);
+      const sheets = (0, sheets_12.sheets)({ version: "v4", auth });
+      const environment = prInfos[0].environment;
+      await syncPRsToSheet(sheets, spreadsheetId, sheetName, prInfos);
+      if (environment === "production") {
+        await handleProductionCycle(sheets, spreadsheetId, sheetName);
+      }
+      core2.info(`\u{1F4C4} Sheet: https://docs.google.com/spreadsheets/d/${spreadsheetId}`);
     }
   }
 });

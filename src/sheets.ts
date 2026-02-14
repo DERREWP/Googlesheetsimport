@@ -10,18 +10,23 @@ function getAuth(credentials: string) {
   });
 }
 
+// Get all sheet names
+async function getAllSheetNames(
+  sheets: ReturnType<typeof googleSheets>,
+  spreadsheetId: string
+): Promise<string[]> {
+  const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+  return spreadsheet.data.sheets?.map((s) => s.properties?.title ?? "") ?? [];
+}
+
 // Get sheet ID by name
 async function getSheetId(
   sheets: ReturnType<typeof googleSheets>,
   spreadsheetId: string,
   sheetName: string
 ): Promise<number | null> {
-  const spreadsheet = await sheets.spreadsheets.get({
-    spreadsheetId
-  });
-
+  const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
   const sheet = spreadsheet.data.sheets?.find((s) => s.properties?.title === sheetName);
-
   return sheet?.properties?.sheetId ?? null;
 }
 
@@ -32,6 +37,22 @@ function getTodayDate(): string {
   const month = String(now.getMonth() + 1).padStart(2, "0");
   const day = String(now.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+// Generate unique tab name (handles duplicates)
+function getUniqueTabName(baseName: string, existingNames: string[]): string {
+  // If base name doesn't exist, use it
+  if (!existingNames.includes(baseName)) {
+    return baseName;
+  }
+
+  // Find next available number
+  let counter = 2;
+  while (existingNames.includes(`${baseName} (${counter})`)) {
+    counter++;
+  }
+
+  return `${baseName} (${counter})`;
 }
 
 // Rename a sheet tab
@@ -72,7 +93,6 @@ async function copySheet(
       destinationSpreadsheetId: spreadsheetId
     }
   });
-
   return response.data.sheetId!;
 }
 
@@ -108,43 +128,154 @@ async function handleProductionCycle(
 ): Promise<void> {
   const today = getTodayDate();
 
-  core.info(`🏭 Production deploy detected`);
-  core.info(`📅 Archiving "${sheetName}" as "${today}"`);
+  core.info("🏭 Production deploy detected");
 
-  // List all sheets for debugging
-  const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
-  const sheetNames = spreadsheet.data.sheets?.map((s) => s.properties?.title);
-  core.info(`📑 Available sheets: ${sheetNames?.join(", ")}`);
+  // 1. Get all existing sheet names
+  const existingNames = await getAllSheetNames(sheets, spreadsheetId);
+  core.info(`📑 Existing sheets: ${existingNames.join(", ")}`);
 
-  // 1. Get "Next" sheet ID
+  // 2. Generate unique name for archive
+  const archiveName = getUniqueTabName(today, existingNames);
+  core.info(`📅 Archive name: "${archiveName}"`);
+
+  // 3. Get "Next" sheet ID
   const nextSheetId = await getSheetId(sheets, spreadsheetId, sheetName);
   if (nextSheetId === null) {
     core.setFailed(`❌ Sheet "${sheetName}" not found`);
     return;
   }
 
-  // 2. Get "Deployment Template" sheet ID
+  // 4. Get "Template" sheet ID
   const templateSheetId = await getSheetId(sheets, spreadsheetId, "Template");
   if (templateSheetId === null) {
     core.setFailed('❌ Sheet "Template" not found');
     return;
   }
 
-  // 3. Rename "Next" to today's date
-  await renameSheet(sheets, spreadsheetId, nextSheetId, today);
-  core.info(`✅ Renamed "${sheetName}" → "${today}"`);
+  // 5. Rename "Next" to archive name
+  await renameSheet(sheets, spreadsheetId, nextSheetId, archiveName);
+  core.info(`✅ Renamed "${sheetName}" → "${archiveName}"`);
 
-  // 4. Copy "Deployment Template" as new sheet
+  // 6. Copy "Template" as new sheet
   const newSheetId = await copySheet(sheets, spreadsheetId, templateSheetId);
-  core.info("✅ Copied Deployment Template");
+  core.info("✅ Copied Template");
 
-  // 5. Rename the copy to "Next"
+  // 7. Rename the copy to "Next"
   await renameSheet(sheets, spreadsheetId, newSheetId, sheetName);
   core.info(`✅ Renamed copy → "${sheetName}"`);
 
-  // 6. Move new "Next" to first position
+  // 8. Move new "Next" to first position
   await moveSheetToFirst(sheets, spreadsheetId, newSheetId);
   core.info('✅ Moved new "Next" to first tab');
+}
+
+// Sync PR data to sheet
+async function syncPRsToSheet(
+  sheets: ReturnType<typeof googleSheets>,
+  spreadsheetId: string,
+  sheetName: string,
+  prInfos: PRInfo[]
+): Promise<void> {
+  const range = `${sheetName}!A:K`;
+
+  // 1. Debug info
+  core.info(`🔍 Spreadsheet ID: ${spreadsheetId}`);
+  core.info(`🔍 Sheet name: ${sheetName}`);
+  core.info(`🔍 Range: ${range}`);
+
+  // 2. Verify sheet exists
+  try {
+    const sheetNames = await getAllSheetNames(sheets, spreadsheetId);
+    core.info(`📑 Available sheets: ${sheetNames.join(", ")}`);
+
+    if (!sheetNames.includes(sheetName)) {
+      core.setFailed(`❌ Sheet "${sheetName}" not found. Available: ${sheetNames.join(", ")}`);
+      return;
+    }
+  } catch (error) {
+    core.setFailed(
+      `❌ Cannot access spreadsheet. Check:\n` +
+        `  - Spreadsheet ID is correct\n` +
+        `  - Service account has access\n` +
+        `  - Error: ${(error as Error).message}`
+    );
+    return;
+  }
+
+  // 3. Read existing data
+  core.info("📖 Reading existing sheet data...");
+  const existing = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range
+  });
+
+  const existingRows = existing.data.values ?? [];
+  core.info(`📄 Found ${existingRows.length} existing rows`);
+
+  // 4. Build issue → row map
+  // Headers are on row 4, data starts at row 5
+  const ISSUE_COL = 0;
+  const HEADER_ROW = 4;
+  const issueRowMap = new Map<string, number>();
+
+  for (let i = HEADER_ROW; i < existingRows.length; i++) {
+    const row = existingRows[i];
+    if (row && row[ISSUE_COL]) {
+      const issue = String(row[ISSUE_COL]).trim().toUpperCase();
+      const sheetRow = i + 1; // 1-based for Sheets API
+      issueRowMap.set(issue, sheetRow);
+      core.info(`📍 Found existing issue: ${issue} at row ${sheetRow}`);
+    }
+  }
+
+  core.info(`📊 Total tracked issues: ${issueRowMap.size}`);
+
+  // 5. Process each PR
+  let newCount = 0;
+  let updateCount = 0;
+
+  for (const pr of prInfos) {
+    const issueKey = pr.issue.trim().toUpperCase();
+    const existingRow = issueRowMap.get(issueKey);
+
+    if (existingRow) {
+      // UPDATE: Only change environment column (column D)
+      core.info(`🔄 Updating ${issueKey} at row ${existingRow} → ${pr.environment}`);
+
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `${sheetName}!D${existingRow}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: {
+          values: [[pr.environment]]
+        }
+      });
+
+      updateCount++;
+    } else {
+      // NEW: Add full row
+      core.info(`➕ Adding new row for ${issueKey}`);
+
+      await sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: `${sheetName}!A:K`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: {
+          values: [
+            [pr.issue, "In Progress", pr.author, pr.environment, pr.app, "", "", "", "", "", ""]
+          ]
+        }
+      });
+
+      // Track the new issue so duplicates in the same run are caught
+      const newRowIndex = existingRows.length + newCount + 1;
+      issueRowMap.set(issueKey, newRowIndex);
+
+      newCount++;
+    }
+  }
+
+  core.info(`✅ Done! Added ${newCount} new, updated ${updateCount} existing`);
 }
 
 // Main sync function
@@ -170,105 +301,4 @@ export async function syncToSheets(
   }
 
   core.info(`📄 Sheet: https://docs.google.com/spreadsheets/d/${spreadsheetId}`);
-}
-
-// Sync PR data to sheet
-async function syncPRsToSheet(
-  sheets: ReturnType<typeof googleSheets>,
-  spreadsheetId: string,
-  sheetName: string,
-  prInfos: PRInfo[]
-): Promise<void> {
-  const range = `${sheetName}!A:K`;
-
-  // 1. Debug info
-  core.info(`🔍 Spreadsheet ID: ${spreadsheetId}`);
-  core.info(`🔍 Sheet name: ${sheetName}`);
-  core.info(`🔍 Range: ${range}`);
-
-  // 2. Verify sheet exists
-  try {
-    const spreadsheet = await sheets.spreadsheets.get({
-      spreadsheetId
-    });
-
-    const sheetNames = spreadsheet.data.sheets?.map((s) => s.properties?.title);
-    core.info(`📑 Available sheets: ${sheetNames?.join(", ")}`);
-
-    if (!sheetNames?.includes(sheetName)) {
-      core.setFailed(`❌ Sheet "${sheetName}" not found. Available: ${sheetNames?.join(", ")}`);
-      return;
-    }
-  } catch (error) {
-    core.setFailed(
-      `❌ Cannot access spreadsheet. Check:\n` +
-        `  - Spreadsheet ID is correct\n` +
-        `  - Service account has access\n` +
-        `  - Error: ${(error as Error).message}`
-    );
-    return;
-  }
-
-  // 3. Read existing data
-  core.info("📖 Reading existing sheet data...");
-  const existing = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range
-  });
-
-  const existingRows = existing.data.values ?? [];
-  core.info(`📄 Found ${existingRows.length} existing rows`);
-
-  // 2. Build issue → row map
-  const ISSUE_COL = 0;
-  const HEADER_ROW = 4;
-  const issueRowMap = new Map<string, number>();
-
-  for (let i = HEADER_ROW; i < existingRows.length; i++) {
-    const issue = existingRows[i][ISSUE_COL];
-    if (issue) {
-      issueRowMap.set(issue.toUpperCase(), i + 1);
-    }
-  }
-  // 3. Process each PR
-  let newCount = 0;
-  let updateCount = 0;
-
-  for (const pr of prInfos) {
-    const existingRow = issueRowMap.get(pr.issue.toUpperCase());
-
-    if (existingRow) {
-      // UPDATE: Only change environment column
-      core.info(`🔄 Updating ${pr.issue} → ${pr.environment}`);
-
-      await sheets.spreadsheets.values.update({
-        spreadsheetId,
-        range: `${sheetName}!D${existingRow}`,
-        valueInputOption: "USER_ENTERED",
-        requestBody: {
-          values: [[pr.environment]]
-        }
-      });
-
-      updateCount++;
-    } else {
-      // NEW: Add full row
-      core.info(`➕ Adding new row for ${pr.issue}`);
-
-      await sheets.spreadsheets.values.append({
-        spreadsheetId,
-        range: `${sheetName}!A:K`,
-        valueInputOption: "USER_ENTERED",
-        requestBody: {
-          values: [
-            [pr.issue, "In Progress", pr.author, pr.environment, pr.app, "", "", "", "", "", ""]
-          ]
-        }
-      });
-
-      newCount++;
-    }
-  }
-
-  core.info(`✅ Done! Added ${newCount} new, updated ${updateCount} existing`);
 }
