@@ -3,6 +3,8 @@ import { sheets as googleSheets } from "@googleapis/sheets";
 import { GoogleAuth } from "google-auth-library";
 import { PRInfo } from "./types";
 
+// --- Helpers ---
+
 function getAuth(credentials: string) {
   return new GoogleAuth({
     credentials: JSON.parse(credentials),
@@ -10,7 +12,6 @@ function getAuth(credentials: string) {
   });
 }
 
-// Get all sheet names
 async function getAllSheetNames(
   sheets: ReturnType<typeof googleSheets>,
   spreadsheetId: string
@@ -19,7 +20,6 @@ async function getAllSheetNames(
   return spreadsheet.data.sheets?.map((s) => s.properties?.title ?? "") ?? [];
 }
 
-// Get sheet ID by name
 async function getSheetId(
   sheets: ReturnType<typeof googleSheets>,
   spreadsheetId: string,
@@ -30,7 +30,6 @@ async function getSheetId(
   return sheet?.properties?.sheetId ?? null;
 }
 
-// Get today's date as string (YYYY-MM-DD)
 function getTodayDate(): string {
   const now = new Date();
   const year = now.getFullYear();
@@ -39,7 +38,6 @@ function getTodayDate(): string {
   return `${year}-${month}-${day}`;
 }
 
-// Generate unique tab name (handles duplicates)
 function getUniqueTabName(baseName: string, existingNames: string[]): string {
   if (!existingNames.includes(baseName)) {
     return baseName;
@@ -53,7 +51,28 @@ function getUniqueTabName(baseName: string, existingNames: string[]): string {
   return `${baseName} (${counter})`;
 }
 
-// Rename a sheet tab
+// Capitalize environment to match dropdown
+function formatEnvironment(env: string): string {
+  const map: Record<string, string> = {
+    internal: "Internal",
+    stage: "Stage",
+    production: "Production"
+  };
+  return map[env.toLowerCase()] ?? env;
+}
+
+// Capitalize app to match dropdown
+function formatApp(app: string): string {
+  const map: Record<string, string> = {
+    web: "Web",
+    admin: "Admin",
+    cm: "CM"
+  };
+  return map[app.toLowerCase()] ?? app;
+}
+
+// --- Sheet Operations ---
+
 async function renameSheet(
   sheets: ReturnType<typeof googleSheets>,
   spreadsheetId: string,
@@ -66,10 +85,7 @@ async function renameSheet(
       requests: [
         {
           updateSheetProperties: {
-            properties: {
-              sheetId,
-              title: newName
-            },
+            properties: { sheetId, title: newName },
             fields: "title"
           }
         }
@@ -78,7 +94,6 @@ async function renameSheet(
   });
 }
 
-// Copy a sheet tab
 async function copySheet(
   sheets: ReturnType<typeof googleSheets>,
   spreadsheetId: string,
@@ -87,14 +102,11 @@ async function copySheet(
   const response = await sheets.spreadsheets.sheets.copyTo({
     spreadsheetId,
     sheetId: sourceSheetId,
-    requestBody: {
-      destinationSpreadsheetId: spreadsheetId
-    }
+    requestBody: { destinationSpreadsheetId: spreadsheetId }
   });
   return response.data.sheetId!;
 }
 
-// Move sheet to first position
 async function moveSheetToFirst(
   sheets: ReturnType<typeof googleSheets>,
   spreadsheetId: string,
@@ -106,10 +118,7 @@ async function moveSheetToFirst(
       requests: [
         {
           updateSheetProperties: {
-            properties: {
-              sheetId,
-              index: 0
-            },
+            properties: { sheetId, index: 0 },
             fields: "index"
           }
         }
@@ -118,7 +127,40 @@ async function moveSheetToFirst(
   });
 }
 
-// Handle production deployment: archive "Next" and create new one
+// --- Version Management ---
+
+async function setVersion(
+  sheets: ReturnType<typeof googleSheets>,
+  spreadsheetId: string,
+  sheetName: string,
+  cell: string,
+  version: string
+): Promise<void> {
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${sheetName}!${cell}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [[version]]
+    }
+  });
+}
+
+async function getCellValue(
+  sheets: ReturnType<typeof googleSheets>,
+  spreadsheetId: string,
+  sheetName: string,
+  cell: string
+): Promise<string> {
+  const result = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${sheetName}!${cell}`
+  });
+  return String(result.data.values?.[0]?.[0] ?? "");
+}
+
+// --- Production Cycle ---
+
 async function handleProductionCycle(
   sheets: ReturnType<typeof googleSheets>,
   spreadsheetId: string,
@@ -128,51 +170,63 @@ async function handleProductionCycle(
 
   core.info("🏭 Production deploy detected");
 
-  // 1. Get all existing sheet names
+  // 1. Read current "New version" (H2) before archiving
+  const currentVersion = await getCellValue(sheets, spreadsheetId, sheetName, "H2");
+  core.info(`🏷️ Current version (H2): ${currentVersion}`);
+
+  // 2. Get all existing sheet names
   const existingNames = await getAllSheetNames(sheets, spreadsheetId);
   core.info(`📑 Existing sheets: ${existingNames.join(", ")}`);
 
-  // 2. Generate unique name for archive
+  // 3. Generate unique archive name
   const archiveName = getUniqueTabName(today, existingNames);
   core.info(`📅 Archive name: "${archiveName}"`);
 
-  // 3. Get "Next" sheet ID
+  // 4. Get "Next" sheet ID
   const nextSheetId = await getSheetId(sheets, spreadsheetId, sheetName);
   if (nextSheetId === null) {
     core.setFailed(`❌ Sheet "${sheetName}" not found`);
     return;
   }
 
-  // 4. Get "Template" sheet ID
+  // 5. Get "Template" sheet ID
   const templateSheetId = await getSheetId(sheets, spreadsheetId, "Template");
   if (templateSheetId === null) {
     core.setFailed('❌ Sheet "Template" not found');
     return;
   }
 
-  // 5. Rename "Next" to archive name
+  // 6. Rename "Next" to archive name
   await renameSheet(sheets, spreadsheetId, nextSheetId, archiveName);
   core.info(`✅ Renamed "${sheetName}" → "${archiveName}"`);
 
-  // 6. Copy "Template" as new sheet
+  // 7. Copy "Template" as new sheet
   const newSheetId = await copySheet(sheets, spreadsheetId, templateSheetId);
   core.info("✅ Copied Template");
 
-  // 7. Rename the copy to "Next"
+  // 8. Rename the copy to "Next"
   await renameSheet(sheets, spreadsheetId, newSheetId, sheetName);
   core.info(`✅ Renamed copy → "${sheetName}"`);
 
-  // 8. Move new "Next" to first position
+  // 9. Move new "Next" to first position
   await moveSheetToFirst(sheets, spreadsheetId, newSheetId);
   core.info('✅ Moved new "Next" to first tab');
+
+  // 10. Set "Last version deployed" (A2) in new "Next" to the old H2 value
+  if (currentVersion) {
+    await setVersion(sheets, spreadsheetId, sheetName, "A2", currentVersion);
+    core.info(`✅ Set "Last version" (A2) in new "Next" to: ${currentVersion}`);
+  }
 }
 
-// Sync PR data to sheet
+// --- Sync PRs to Sheet ---
+
 async function syncPRsToSheet(
   sheets: ReturnType<typeof googleSheets>,
   spreadsheetId: string,
   sheetName: string,
-  prInfos: PRInfo[]
+  prInfos: PRInfo[],
+  version: string
 ): Promise<void> {
   const range = `${sheetName}!A:K`;
 
@@ -200,7 +254,13 @@ async function syncPRsToSheet(
     return;
   }
 
-  // 3. Read existing data
+  // 3. Set version in H2 (if provided)
+  if (version) {
+    await setVersion(sheets, spreadsheetId, sheetName, "H2", version);
+    core.info(`🏷️ Set version (H2): ${version}`);
+  }
+
+  // 4. Read existing data
   core.info("📖 Reading existing sheet data...");
   const existing = await sheets.spreadsheets.values.get({
     spreadsheetId,
@@ -210,7 +270,7 @@ async function syncPRsToSheet(
   const existingRows = existing.data.values ?? [];
   core.info(`📄 Found ${existingRows.length} existing rows`);
 
-  // 4. Find header row dynamically
+  // 5. Find header row dynamically
   const ISSUE_COL = 0;
   let headerRowIndex = -1;
 
@@ -234,9 +294,10 @@ async function syncPRsToSheet(
     headerRowIndex = 0;
   }
 
-  // 5. Build issue → row map
+  // 6. Build issue → row map AND find first empty row
   const dataStartIndex = headerRowIndex + 1;
   const issueRowMap = new Map<string, number>();
+  let firstEmptyRow = -1;
 
   core.info(
     `📊 Scanning rows ${dataStartIndex + 1} to ${existingRows.length} for existing issues...`
@@ -244,56 +305,77 @@ async function syncPRsToSheet(
 
   for (let i = dataStartIndex; i < existingRows.length; i++) {
     const row = existingRows[i];
-    if (row && row[ISSUE_COL]) {
-      const issue = String(row[ISSUE_COL]).trim().toUpperCase();
-      if (issue.startsWith("ADV-")) {
-        const sheetRow = i + 1;
-        issueRowMap.set(issue, sheetRow);
-        core.info(`📍 Found existing: ${issue} at row ${sheetRow}`);
-      }
+    const cellValue = row?.[ISSUE_COL] ? String(row[ISSUE_COL]).trim() : "";
+
+    if (cellValue.toUpperCase().startsWith("ADV-")) {
+      // Existing issue
+      const sheetRow = i + 1;
+      issueRowMap.set(cellValue.toUpperCase(), sheetRow);
+      core.info(`📍 Found existing: ${cellValue.toUpperCase()} at row ${sheetRow}`);
+    } else if (cellValue === "" && firstEmptyRow === -1) {
+      // First empty row (pre-formatted with dropdowns)
+      firstEmptyRow = i + 1;
+      core.info(`📍 First empty row: ${firstEmptyRow}`);
     }
+  }
+
+  // If no empty row found in existing range, use next row after data
+  if (firstEmptyRow === -1) {
+    firstEmptyRow = existingRows.length + 1;
+    core.info(`📍 No empty row found, will use row ${firstEmptyRow}`);
   }
 
   core.info(`📊 Total tracked issues: ${issueRowMap.size}`);
   core.info(`📊 Looking for: ${prInfos.map((p) => p.issue).join(", ")}`);
 
-  // 6. Process each PR
+  // 7. Process each PR
   let newCount = 0;
   let updateCount = 0;
 
   for (const pr of prInfos) {
     const issueKey = pr.issue.trim().toUpperCase();
     const existingRow = issueRowMap.get(issueKey);
+    const formattedEnv = formatEnvironment(pr.environment);
+    const formattedApp = formatApp(pr.app);
 
     if (existingRow) {
-      core.info(`🔄 Updating ${issueKey} at row ${existingRow} → ${pr.environment}`);
+      // UPDATE: Only change environment column (D)
+      core.info(`🔄 Updating ${issueKey} at row ${existingRow} → ${formattedEnv}`);
 
       await sheets.spreadsheets.values.update({
         spreadsheetId,
         range: `${sheetName}!D${existingRow}`,
         valueInputOption: "USER_ENTERED",
         requestBody: {
-          values: [[pr.environment]]
+          values: [[formattedEnv]]
         }
       });
 
       updateCount++;
     } else {
-      core.info(`➕ Adding new row for ${issueKey}`);
+      // NEW: Write into first available empty row
+      const targetRow = firstEmptyRow + newCount;
+      core.info(`➕ Adding ${issueKey} at row ${targetRow}`);
 
-      await sheets.spreadsheets.values.append({
+      await sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: `${sheetName}!A:K`,
+        range: `${sheetName}!A${targetRow}:E${targetRow}`,
         valueInputOption: "USER_ENTERED",
         requestBody: {
           values: [
-            [pr.issue, "In Progress", pr.author, pr.environment, pr.app, "", "", "", "", "", ""]
+            [
+              pr.issue, // A: Issue
+              "In progress", // B: Status
+              pr.author, // C: Assignee
+              formattedEnv, // D: Environment
+              formattedApp // E: App
+            ]
           ]
         }
       });
 
-      const newRowIndex = existingRows.length + newCount + 1;
-      issueRowMap.set(issueKey, newRowIndex);
+      // Track the new issue
+      issueRowMap.set(issueKey, targetRow);
 
       newCount++;
     }
@@ -302,22 +384,24 @@ async function syncPRsToSheet(
   core.info(`✅ Done! Added ${newCount} new, updated ${updateCount} existing`);
 }
 
-// Main sync function
+// --- Main Export ---
+
 export async function syncToSheets(
   credentials: string,
   spreadsheetId: string,
   sheetName: string,
-  prInfos: PRInfo[]
+  prInfos: PRInfo[],
+  version: string
 ): Promise<void> {
   // 1. Authenticate
   const auth = getAuth(credentials);
   const sheets = googleSheets({ version: "v4", auth });
 
-  // 2. Get current environment from first PR
+  // 2. Get current environment
   const environment = prInfos[0].environment;
 
-  // 3. Update PRs in the current "Next" sheet FIRST
-  await syncPRsToSheet(sheets, spreadsheetId, sheetName, prInfos);
+  // 3. Update PRs in "Next" sheet
+  await syncPRsToSheet(sheets, spreadsheetId, sheetName, prInfos, version);
 
   // 4. If production: archive and create new cycle
   if (environment === "production") {

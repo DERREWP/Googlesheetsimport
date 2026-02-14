@@ -12,10 +12,11 @@ jobs:
         uses: ./
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          spreadsheet-id: "1TIdab5GcMAhWzhK6PF3wte7hK1PRrWI7XFf8yBsEjDQ"
+          spreadsheet-id: "1dvGo3BzUv6Uz4dHE6WSgGU9eViOEMg1rqFLrK7Lwe5M"
           google-credentials: ${{ secrets.GOOGLE_CREDENTIALS }}
-          app: "my-app"
+          app: "Web"
           environment: "internal"
+          version: "#20250615.12345.0"
           jira-tickets: "ADV-100,ADV-101"
 
   test-stage:
@@ -27,9 +28,9 @@ jobs:
         uses: ./
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          spreadsheet-id: "1TIdab5GcMAhWzhK6PF3wte7hK1PRrWI7XFf8yBsEjDQ"
+          spreadsheet-id: "1dvGo3BzUv6Uz4dHE6WSgGU9eViOEMg1rqFLrK7Lwe5M"
           google-credentials: ${{ secrets.GOOGLE_CREDENTIALS }}
-          app: "my-app"
+          app: "Web"
           environment: "stage"
           jira-tickets: "ADV-100,ADV-101"
 
@@ -42,8 +43,8 @@ jobs:
         uses: ./
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          spreadsheet-id: "1TIdab5GcMAhWzhK6PF3wte7hK1PRrWI7XFf8yBsEjDQ"
+          spreadsheet-id: "1dvGo3BzUv6Uz4dHE6WSgGU9eViOEMg1rqFLrK7Lwe5M"
           google-credentials: ${{ secrets.GOOGLE_CREDENTIALS }}
-          app: "my-app"
+          app: "Web"
           environment: "production"
           jira-tickets: "ADV-100,ADV-101"

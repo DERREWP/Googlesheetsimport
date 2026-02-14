@@ -12,25 +12,29 @@ inputs:
     description: "Google Service Account JSON"
     required: true
   app:
-    description: "Application name"
+    description: "Application name (Web, Admin, CM)"
     required: true
   environment:
-    description: "Deployment environment (internal, stage, production)"
+    description: "Deployment environment (Internal, Stage, Production)"
     required: true
+  version:
+    description: "Version number being deployed (e.g., #20241213.31712.0)"
+    required: false
+    default: ""
   sheet-name:
     description: "Sheet tab name"
     required: false
     default: "Next"
   base-tag:
-    description: "Previous deployment tag to compare from (e.g., internal-100)"
+    description: "Previous deployment tag to compare from"
     required: false
     default: ""
   head-tag:
-    description: "Current deployment tag (e.g., internal-101)"
+    description: "Current deployment tag"
     required: false
     default: ""
   jira-tickets:
-    description: "Override: comma-separated Jira tickets (e.g., ADV-123,ADV-456)"
+    description: "Comma-separated Jira tickets (e.g., ADV-123,ADV-456)"
     required: false
     default: ""
 

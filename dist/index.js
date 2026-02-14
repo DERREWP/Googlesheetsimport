@@ -46684,6 +46684,24 @@ var require_sheets = __commonJS({
       }
       return `${baseName} (${counter})`;
     }
+    function formatEnvironment(env) {
+      var _a;
+      const map = {
+        internal: "Internal",
+        stage: "Stage",
+        production: "Production"
+      };
+      return (_a = map[env.toLowerCase()]) !== null && _a !== void 0 ? _a : env;
+    }
+    function formatApp(app) {
+      var _a;
+      const map = {
+        web: "Web",
+        admin: "Admin",
+        cm: "CM"
+      };
+      return (_a = map[app.toLowerCase()]) !== null && _a !== void 0 ? _a : app;
+    }
     async function renameSheet(sheets, spreadsheetId, sheetId, newName) {
       await sheets.spreadsheets.batchUpdate({
         spreadsheetId,
@@ -46691,10 +46709,7 @@ var require_sheets = __commonJS({
           requests: [
             {
               updateSheetProperties: {
-                properties: {
-                  sheetId,
-                  title: newName
-                },
+                properties: { sheetId, title: newName },
                 fields: "title"
               }
             }
@@ -46706,9 +46721,7 @@ var require_sheets = __commonJS({
       const response = await sheets.spreadsheets.sheets.copyTo({
         spreadsheetId,
         sheetId: sourceSheetId,
-        requestBody: {
-          destinationSpreadsheetId: spreadsheetId
-        }
+        requestBody: { destinationSpreadsheetId: spreadsheetId }
       });
       return response.data.sheetId;
     }
@@ -46719,10 +46732,7 @@ var require_sheets = __commonJS({
           requests: [
             {
               updateSheetProperties: {
-                properties: {
-                  sheetId,
-                  index: 0
-                },
+                properties: { sheetId, index: 0 },
                 fields: "index"
               }
             }
@@ -46730,9 +46740,29 @@ var require_sheets = __commonJS({
         }
       });
     }
+    async function setVersion(sheets, spreadsheetId, sheetName, cell, version) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `${sheetName}!${cell}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: {
+          values: [[version]]
+        }
+      });
+    }
+    async function getCellValue(sheets, spreadsheetId, sheetName, cell) {
+      var _a, _b, _c;
+      const result = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: `${sheetName}!${cell}`
+      });
+      return String((_c = (_b = (_a = result.data.values) === null || _a === void 0 ? void 0 : _a[0]) === null || _b === void 0 ? void 0 : _b[0]) !== null && _c !== void 0 ? _c : "");
+    }
     async function handleProductionCycle(sheets, spreadsheetId, sheetName) {
       const today = getTodayDate();
       core2.info("\u{1F3ED} Production deploy detected");
+      const currentVersion = await getCellValue(sheets, spreadsheetId, sheetName, "H2");
+      core2.info(`\u{1F3F7}\uFE0F Current version (H2): ${currentVersion}`);
       const existingNames = await getAllSheetNames(sheets, spreadsheetId);
       core2.info(`\u{1F4D1} Existing sheets: ${existingNames.join(", ")}`);
       const archiveName = getUniqueTabName(today, existingNames);
@@ -46755,8 +46785,12 @@ var require_sheets = __commonJS({
       core2.info(`\u2705 Renamed copy \u2192 "${sheetName}"`);
       await moveSheetToFirst(sheets, spreadsheetId, newSheetId);
       core2.info('\u2705 Moved new "Next" to first tab');
+      if (currentVersion) {
+        await setVersion(sheets, spreadsheetId, sheetName, "A2", currentVersion);
+        core2.info(`\u2705 Set "Last version" (A2) in new "Next" to: ${currentVersion}`);
+      }
     }
-    async function syncPRsToSheet(sheets, spreadsheetId, sheetName, prInfos) {
+    async function syncPRsToSheet(sheets, spreadsheetId, sheetName, prInfos, version) {
       var _a, _b, _c;
       const range = `${sheetName}!A:K`;
       core2.info(`\u{1F50D} Spreadsheet ID: ${spreadsheetId}`);
@@ -46775,6 +46809,10 @@ var require_sheets = __commonJS({
   - Service account has access
   - Error: ${error.message}`);
         return;
+      }
+      if (version) {
+        await setVersion(sheets, spreadsheetId, sheetName, "H2", version);
+        core2.info(`\u{1F3F7}\uFE0F Set version (H2): ${version}`);
       }
       core2.info("\u{1F4D6} Reading existing sheet data...");
       const existing = await sheets.spreadsheets.values.get({
@@ -46803,17 +46841,23 @@ var require_sheets = __commonJS({
       }
       const dataStartIndex = headerRowIndex + 1;
       const issueRowMap = /* @__PURE__ */ new Map();
+      let firstEmptyRow = -1;
       core2.info(`\u{1F4CA} Scanning rows ${dataStartIndex + 1} to ${existingRows.length} for existing issues...`);
       for (let i2 = dataStartIndex; i2 < existingRows.length; i2++) {
         const row = existingRows[i2];
-        if (row && row[ISSUE_COL]) {
-          const issue = String(row[ISSUE_COL]).trim().toUpperCase();
-          if (issue.startsWith("ADV-")) {
-            const sheetRow = i2 + 1;
-            issueRowMap.set(issue, sheetRow);
-            core2.info(`\u{1F4CD} Found existing: ${issue} at row ${sheetRow}`);
-          }
+        const cellValue = (row === null || row === void 0 ? void 0 : row[ISSUE_COL]) ? String(row[ISSUE_COL]).trim() : "";
+        if (cellValue.toUpperCase().startsWith("ADV-")) {
+          const sheetRow = i2 + 1;
+          issueRowMap.set(cellValue.toUpperCase(), sheetRow);
+          core2.info(`\u{1F4CD} Found existing: ${cellValue.toUpperCase()} at row ${sheetRow}`);
+        } else if (cellValue === "" && firstEmptyRow === -1) {
+          firstEmptyRow = i2 + 1;
+          core2.info(`\u{1F4CD} First empty row: ${firstEmptyRow}`);
         }
+      }
+      if (firstEmptyRow === -1) {
+        firstEmptyRow = existingRows.length + 1;
+        core2.info(`\u{1F4CD} No empty row found, will use row ${firstEmptyRow}`);
       }
       core2.info(`\u{1F4CA} Total tracked issues: ${issueRowMap.size}`);
       core2.info(`\u{1F4CA} Looking for: ${prInfos.map((p) => p.issue).join(", ")}`);
@@ -46822,53 +46866,54 @@ var require_sheets = __commonJS({
       for (const pr of prInfos) {
         const issueKey = pr.issue.trim().toUpperCase();
         const existingRow = issueRowMap.get(issueKey);
+        const formattedEnv = formatEnvironment(pr.environment);
+        const formattedApp = formatApp(pr.app);
         if (existingRow) {
-          core2.info(`\u{1F504} Updating ${issueKey} at row ${existingRow} \u2192 ${pr.environment}`);
+          core2.info(`\u{1F504} Updating ${issueKey} at row ${existingRow} \u2192 ${formattedEnv}`);
           await sheets.spreadsheets.values.update({
             spreadsheetId,
             range: `${sheetName}!D${existingRow}`,
             valueInputOption: "USER_ENTERED",
             requestBody: {
-              values: [[pr.environment]]
+              values: [[formattedEnv]]
             }
           });
           updateCount++;
         } else {
-          core2.info(`\u2795 Adding new row for ${issueKey}`);
-          await sheets.spreadsheets.values.append({
+          const targetRow = firstEmptyRow + newCount;
+          core2.info(`\u2795 Adding ${issueKey} at row ${targetRow}`);
+          await sheets.spreadsheets.values.update({
             spreadsheetId,
-            range: `${sheetName}!A:K`,
+            range: `${sheetName}!A${targetRow}:E${targetRow}`,
             valueInputOption: "USER_ENTERED",
             requestBody: {
               values: [
                 [
                   pr.issue,
-                  "In Progress",
+                  // A: Issue
+                  "In progress",
+                  // B: Status
                   pr.author,
-                  pr.environment,
-                  pr.app,
-                  "",
-                  "",
-                  "",
-                  "",
-                  "",
-                  ""
+                  // C: Assignee
+                  formattedEnv,
+                  // D: Environment
+                  formattedApp
+                  // E: App
                 ]
               ]
             }
           });
-          const newRowIndex = existingRows.length + newCount + 1;
-          issueRowMap.set(issueKey, newRowIndex);
+          issueRowMap.set(issueKey, targetRow);
           newCount++;
         }
       }
       core2.info(`\u2705 Done! Added ${newCount} new, updated ${updateCount} existing`);
     }
-    async function syncToSheets(credentials, spreadsheetId, sheetName, prInfos) {
+    async function syncToSheets(credentials, spreadsheetId, sheetName, prInfos, version) {
       const auth = getAuth(credentials);
       const sheets = (0, sheets_12.sheets)({ version: "v4", auth });
       const environment = prInfos[0].environment;
-      await syncPRsToSheet(sheets, spreadsheetId, sheetName, prInfos);
+      await syncPRsToSheet(sheets, spreadsheetId, sheetName, prInfos, version);
       if (environment === "production") {
         await handleProductionCycle(sheets, spreadsheetId, sheetName);
       }
@@ -46926,6 +46971,7 @@ async function run() {
     const googleCredentials = core.getInput("google-credentials", { required: true });
     const app = core.getInput("app", { required: true });
     const environment = core.getInput("environment", { required: true });
+    const version = core.getInput("version") || "";
     const sheetName = core.getInput("sheet-name") || "Next";
     const jiraTickets = core.getInput("jira-tickets") || "";
     const baseTag = core.getInput("base-tag") || "";
@@ -46935,16 +46981,22 @@ async function run() {
       core.setFailed(`\u274C Invalid environment: "${environment}". Must be: ${validEnvs.join(", ")}`);
       return;
     }
+    const validApps = ["web", "admin", "cm"];
+    if (!validApps.includes(app.toLowerCase())) {
+      core.setFailed(`\u274C Invalid app: "${app}". Must be: ${validApps.join(", ")}`);
+      return;
+    }
     core.setSecret(googleCredentials);
     core.info(`\u{1F680} Environment: ${environment}`);
     core.info(`\u{1F4F1} App: ${app}`);
     core.info(`\u{1F4C4} Sheet: ${sheetName}`);
+    core.info(`\u{1F3F7}\uFE0F Version: ${version || "not provided"}`);
     const prInfos = await (0, github_1.getPRInfo)(token, app, environment.toLowerCase(), jiraTickets, baseTag, headTag);
     if (prInfos.length === 0) {
       core.info("\u2139\uFE0F No Jira tickets found. Nothing to sync.");
       return;
     }
-    await (0, sheets_1.syncToSheets)(googleCredentials, spreadsheetId, sheetName, prInfos);
+    await (0, sheets_1.syncToSheets)(googleCredentials, spreadsheetId, sheetName, prInfos, version);
   } catch (error) {
     core.setFailed(error.message);
   }

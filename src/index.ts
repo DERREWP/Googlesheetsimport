@@ -10,6 +10,7 @@ async function run() {
     const googleCredentials = core.getInput("google-credentials", { required: true });
     const app = core.getInput("app", { required: true });
     const environment = core.getInput("environment", { required: true });
+    const version = core.getInput("version") || "";
     const sheetName = core.getInput("sheet-name") || "Next";
     const jiraTickets = core.getInput("jira-tickets") || "";
     const baseTag = core.getInput("base-tag") || "";
@@ -22,14 +23,22 @@ async function run() {
       return;
     }
 
-    // 3. Hide credentials
+    // 3. Validate app
+    const validApps = ["web", "admin", "cm"];
+    if (!validApps.includes(app.toLowerCase())) {
+      core.setFailed(`❌ Invalid app: "${app}". Must be: ${validApps.join(", ")}`);
+      return;
+    }
+
+    // 4. Hide credentials
     core.setSecret(googleCredentials);
 
     core.info(`🚀 Environment: ${environment}`);
     core.info(`📱 App: ${app}`);
     core.info(`📄 Sheet: ${sheetName}`);
+    core.info(`🏷️ Version: ${version || "not provided"}`);
 
-    // 4. Get PR info
+    // 5. Get PR info
     const prInfos = await getPRInfo(
       token,
       app,
@@ -44,8 +53,8 @@ async function run() {
       return;
     }
 
-    // 5. Sync to Google Sheets
-    await syncToSheets(googleCredentials, spreadsheetId, sheetName, prInfos);
+    // 6. Sync to Google Sheets
+    await syncToSheets(googleCredentials, spreadsheetId, sheetName, prInfos, version);
   } catch (error) {
     core.setFailed((error as Error).message);
   }
