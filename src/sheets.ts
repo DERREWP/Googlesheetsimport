@@ -111,6 +111,11 @@ async function handleProductionCycle(
   core.info(`🏭 Production deploy detected`);
   core.info(`📅 Archiving "${sheetName}" as "${today}"`);
 
+  // List all sheets for debugging
+  const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+  const sheetNames = spreadsheet.data.sheets?.map((s) => s.properties?.title);
+  core.info(`📑 Available sheets: ${sheetNames?.join(", ")}`);
+
   // 1. Get "Next" sheet ID
   const nextSheetId = await getSheetId(sheets, spreadsheetId, sheetName);
   if (nextSheetId === null) {
@@ -176,7 +181,35 @@ async function syncPRsToSheet(
 ): Promise<void> {
   const range = `${sheetName}!A:K`;
 
-  // 1. Read existing data
+  // 1. Debug info
+  core.info(`🔍 Spreadsheet ID: ${spreadsheetId}`);
+  core.info(`🔍 Sheet name: ${sheetName}`);
+  core.info(`🔍 Range: ${range}`);
+
+  // 2. Verify sheet exists
+  try {
+    const spreadsheet = await sheets.spreadsheets.get({
+      spreadsheetId
+    });
+
+    const sheetNames = spreadsheet.data.sheets?.map((s) => s.properties?.title);
+    core.info(`📑 Available sheets: ${sheetNames?.join(", ")}`);
+
+    if (!sheetNames?.includes(sheetName)) {
+      core.setFailed(`❌ Sheet "${sheetName}" not found. Available: ${sheetNames?.join(", ")}`);
+      return;
+    }
+  } catch (error) {
+    core.setFailed(
+      `❌ Cannot access spreadsheet. Check:\n` +
+        `  - Spreadsheet ID is correct\n` +
+        `  - Service account has access\n` +
+        `  - Error: ${(error as Error).message}`
+    );
+    return;
+  }
+
+  // 3. Read existing data
   core.info("📖 Reading existing sheet data...");
   const existing = await sheets.spreadsheets.values.get({
     spreadsheetId,

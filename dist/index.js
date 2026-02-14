@@ -46715,9 +46715,16 @@ var require_sheets = __commonJS({
       });
     }
     async function handleProductionCycle(sheets, spreadsheetId, sheetName) {
+      var _a;
       const today = getTodayDate();
       core2.info(`\u{1F3ED} Production deploy detected`);
       core2.info(`\u{1F4C5} Archiving "${sheetName}" as "${today}"`);
+      const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+      const sheetNames = (_a = spreadsheet.data.sheets) === null || _a === void 0 ? void 0 : _a.map((s2) => {
+        var _a2;
+        return (_a2 = s2.properties) === null || _a2 === void 0 ? void 0 : _a2.title;
+      });
+      core2.info(`\u{1F4D1} Available sheets: ${sheetNames === null || sheetNames === void 0 ? void 0 : sheetNames.join(", ")}`);
       const nextSheetId = await getSheetId(sheets, spreadsheetId, sheetName);
       if (nextSheetId === null) {
         core2.setFailed(`\u274C Sheet "${sheetName}" not found`);
@@ -46748,14 +46755,37 @@ var require_sheets = __commonJS({
       core2.info(`\u{1F4C4} Sheet: https://docs.google.com/spreadsheets/d/${spreadsheetId}`);
     }
     async function syncPRsToSheet(sheets, spreadsheetId, sheetName, prInfos) {
-      var _a;
+      var _a, _b;
       const range = `${sheetName}!A:K`;
+      core2.info(`\u{1F50D} Spreadsheet ID: ${spreadsheetId}`);
+      core2.info(`\u{1F50D} Sheet name: ${sheetName}`);
+      core2.info(`\u{1F50D} Range: ${range}`);
+      try {
+        const spreadsheet = await sheets.spreadsheets.get({
+          spreadsheetId
+        });
+        const sheetNames = (_a = spreadsheet.data.sheets) === null || _a === void 0 ? void 0 : _a.map((s2) => {
+          var _a2;
+          return (_a2 = s2.properties) === null || _a2 === void 0 ? void 0 : _a2.title;
+        });
+        core2.info(`\u{1F4D1} Available sheets: ${sheetNames === null || sheetNames === void 0 ? void 0 : sheetNames.join(", ")}`);
+        if (!(sheetNames === null || sheetNames === void 0 ? void 0 : sheetNames.includes(sheetName))) {
+          core2.setFailed(`\u274C Sheet "${sheetName}" not found. Available: ${sheetNames === null || sheetNames === void 0 ? void 0 : sheetNames.join(", ")}`);
+          return;
+        }
+      } catch (error) {
+        core2.setFailed(`\u274C Cannot access spreadsheet. Check:
+  - Spreadsheet ID is correct
+  - Service account has access
+  - Error: ${error.message}`);
+        return;
+      }
       core2.info("\u{1F4D6} Reading existing sheet data...");
       const existing = await sheets.spreadsheets.values.get({
         spreadsheetId,
         range
       });
-      const existingRows = (_a = existing.data.values) !== null && _a !== void 0 ? _a : [];
+      const existingRows = (_b = existing.data.values) !== null && _b !== void 0 ? _b : [];
       core2.info(`\u{1F4C4} Found ${existingRows.length} existing rows`);
       const ISSUE_COL = 0;
       const HEADER_ROW = 4;
@@ -46789,19 +46819,7 @@ var require_sheets = __commonJS({
             valueInputOption: "USER_ENTERED",
             requestBody: {
               values: [
-                [
-                  pr.issue,
-                  "In Progress",
-                  pr.author,
-                  pr.environment,
-                  pr.app,
-                  "",
-                  "",
-                  "",
-                  "",
-                  "",
-                  ""
-                ]
+                [pr.issue, "In Progress", pr.author, pr.environment, pr.app, "", "", "", "", "", ""]
               ]
             }
           });

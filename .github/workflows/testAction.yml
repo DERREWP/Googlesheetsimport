@@ -1,22 +1,49 @@
-name: Test Action
+name: Test Full Flow
 
 on:
   workflow_dispatch:
 
 jobs:
-  test:
+  test-internal:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Sync PRs to Sheet
+      - uses: actions/checkout@v4
+      - name: Test Internal
         uses: ./
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          spreadsheet-id: "YOUR_SHEET_ID"
+          spreadsheet-id: "1TIdab5GcMAhWzhK6PF3wte7hK1PRrWI7XFf8yBsEjDQ"
           google-credentials: ${{ secrets.GOOGLE_CREDENTIALS }}
           app: "my-app"
           environment: "internal"
-          jira-tickets: "ADV-100,ADV-101,ADV-102"
+          jira-tickets: "ADV-100,ADV-101"
+
+  test-stage:
+    needs: test-internal
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test Stage
+        uses: ./
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          spreadsheet-id: "1TIdab5GcMAhWzhK6PF3wte7hK1PRrWI7XFf8yBsEjDQ"
+          google-credentials: ${{ secrets.GOOGLE_CREDENTIALS }}
+          app: "my-app"
+          environment: "stage"
+          jira-tickets: "ADV-100,ADV-101"
+
+  test-production:
+    needs: test-stage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test Production
+        uses: ./
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          spreadsheet-id: "1TIdab5GcMAhWzhK6PF3wte7hK1PRrWI7XFf8yBsEjDQ"
+          google-credentials: ${{ secrets.GOOGLE_CREDENTIALS }}
+          app: "my-app"
+          environment: "production"
+          jira-tickets: "ADV-100,ADV-101"
