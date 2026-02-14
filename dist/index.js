@@ -46757,7 +46757,7 @@ var require_sheets = __commonJS({
       core2.info('\u2705 Moved new "Next" to first tab');
     }
     async function syncPRsToSheet(sheets, spreadsheetId, sheetName, prInfos) {
-      var _a;
+      var _a, _b, _c;
       const range = `${sheetName}!A:K`;
       core2.info(`\u{1F50D} Spreadsheet ID: ${spreadsheetId}`);
       core2.info(`\u{1F50D} Sheet name: ${sheetName}`);
@@ -46784,18 +46784,39 @@ var require_sheets = __commonJS({
       const existingRows = (_a = existing.data.values) !== null && _a !== void 0 ? _a : [];
       core2.info(`\u{1F4C4} Found ${existingRows.length} existing rows`);
       const ISSUE_COL = 0;
-      const HEADER_ROW = 4;
+      let headerRowIndex = -1;
+      for (let i2 = 0; i2 < existingRows.length; i2++) {
+        const firstCell = String((_c = (_b = existingRows[i2]) === null || _b === void 0 ? void 0 : _b[ISSUE_COL]) !== null && _c !== void 0 ? _c : "").trim().toLowerCase();
+        if (firstCell === "issue") {
+          headerRowIndex = i2;
+          core2.info(`\u{1F4CD} Found header row at sheet row ${i2 + 1}`);
+          break;
+        }
+      }
+      if (headerRowIndex === -1) {
+        core2.warning("\u26A0\uFE0F Could not find header row with 'Issue' in column A");
+        core2.warning("\u26A0\uFE0F Dumping first 10 rows for debugging:");
+        for (let i2 = 0; i2 < Math.min(10, existingRows.length); i2++) {
+          core2.warning(`  Row ${i2 + 1}: ${JSON.stringify(existingRows[i2])}`);
+        }
+        headerRowIndex = 0;
+      }
+      const dataStartIndex = headerRowIndex + 1;
       const issueRowMap = /* @__PURE__ */ new Map();
-      for (let i2 = HEADER_ROW; i2 < existingRows.length; i2++) {
+      core2.info(`\u{1F4CA} Scanning rows ${dataStartIndex + 1} to ${existingRows.length} for existing issues...`);
+      for (let i2 = dataStartIndex; i2 < existingRows.length; i2++) {
         const row = existingRows[i2];
         if (row && row[ISSUE_COL]) {
           const issue = String(row[ISSUE_COL]).trim().toUpperCase();
-          const sheetRow = i2 + 1;
-          issueRowMap.set(issue, sheetRow);
-          core2.info(`\u{1F4CD} Found existing issue: ${issue} at row ${sheetRow}`);
+          if (issue.startsWith("ADV-")) {
+            const sheetRow = i2 + 1;
+            issueRowMap.set(issue, sheetRow);
+            core2.info(`\u{1F4CD} Found existing: ${issue} at row ${sheetRow}`);
+          }
         }
       }
       core2.info(`\u{1F4CA} Total tracked issues: ${issueRowMap.size}`);
+      core2.info(`\u{1F4CA} Looking for: ${prInfos.map((p) => p.issue).join(", ")}`);
       let newCount = 0;
       let updateCount = 0;
       for (const pr of prInfos) {

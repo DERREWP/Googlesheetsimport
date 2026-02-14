@@ -41,12 +41,10 @@ function getTodayDate(): string {
 
 // Generate unique tab name (handles duplicates)
 function getUniqueTabName(baseName: string, existingNames: string[]): string {
-  // If base name doesn't exist, use it
   if (!existingNames.includes(baseName)) {
     return baseName;
   }
 
-  // Find next available number
   let counter = 2;
   while (existingNames.includes(`${baseName} (${counter})`)) {
     counter++;
@@ -212,25 +210,54 @@ async function syncPRsToSheet(
   const existingRows = existing.data.values ?? [];
   core.info(`📄 Found ${existingRows.length} existing rows`);
 
-  // 4. Build issue → row map
-  // Headers are on row 4, data starts at row 5
+  // 4. Find header row dynamically
   const ISSUE_COL = 0;
-  const HEADER_ROW = 4;
+  let headerRowIndex = -1;
+
+  for (let i = 0; i < existingRows.length; i++) {
+    const firstCell = String(existingRows[i]?.[ISSUE_COL] ?? "")
+      .trim()
+      .toLowerCase();
+    if (firstCell === "issue") {
+      headerRowIndex = i;
+      core.info(`📍 Found header row at sheet row ${i + 1}`);
+      break;
+    }
+  }
+
+  if (headerRowIndex === -1) {
+    core.warning("⚠️ Could not find header row with 'Issue' in column A");
+    core.warning("⚠️ Dumping first 10 rows for debugging:");
+    for (let i = 0; i < Math.min(10, existingRows.length); i++) {
+      core.warning(`  Row ${i + 1}: ${JSON.stringify(existingRows[i])}`);
+    }
+    headerRowIndex = 0;
+  }
+
+  // 5. Build issue → row map
+  const dataStartIndex = headerRowIndex + 1;
   const issueRowMap = new Map<string, number>();
 
-  for (let i = HEADER_ROW; i < existingRows.length; i++) {
+  core.info(
+    `📊 Scanning rows ${dataStartIndex + 1} to ${existingRows.length} for existing issues...`
+  );
+
+  for (let i = dataStartIndex; i < existingRows.length; i++) {
     const row = existingRows[i];
     if (row && row[ISSUE_COL]) {
       const issue = String(row[ISSUE_COL]).trim().toUpperCase();
-      const sheetRow = i + 1; // 1-based for Sheets API
-      issueRowMap.set(issue, sheetRow);
-      core.info(`📍 Found existing issue: ${issue} at row ${sheetRow}`);
+      if (issue.startsWith("ADV-")) {
+        const sheetRow = i + 1;
+        issueRowMap.set(issue, sheetRow);
+        core.info(`📍 Found existing: ${issue} at row ${sheetRow}`);
+      }
     }
   }
 
   core.info(`📊 Total tracked issues: ${issueRowMap.size}`);
+  core.info(`📊 Looking for: ${prInfos.map((p) => p.issue).join(", ")}`);
 
-  // 5. Process each PR
+  // 6. Process each PR
   let newCount = 0;
   let updateCount = 0;
 
@@ -239,7 +266,6 @@ async function syncPRsToSheet(
     const existingRow = issueRowMap.get(issueKey);
 
     if (existingRow) {
-      // UPDATE: Only change environment column (column D)
       core.info(`🔄 Updating ${issueKey} at row ${existingRow} → ${pr.environment}`);
 
       await sheets.spreadsheets.values.update({
@@ -253,7 +279,6 @@ async function syncPRsToSheet(
 
       updateCount++;
     } else {
-      // NEW: Add full row
       core.info(`➕ Adding new row for ${issueKey}`);
 
       await sheets.spreadsheets.values.append({
@@ -267,7 +292,6 @@ async function syncPRsToSheet(
         }
       });
 
-      // Track the new issue so duplicates in the same run are caught
       const newRowIndex = existingRows.length + newCount + 1;
       issueRowMap.set(issueKey, newRowIndex);
 
