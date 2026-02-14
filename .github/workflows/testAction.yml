@@ -15,8 +15,8 @@ jobs:
         uses: ./
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          spreadsheet-id: "YOUR_SPREADSHEET_ID"
+          spreadsheet-id: "YOUR_SHEET_ID"
           google-credentials: ${{ secrets.GOOGLE_CREDENTIALS }}
           app: "my-app"
           environment: "internal"
-          sheet-name: "Next"
+          jira-tickets: "ADV-100,ADV-101,ADV-102"
