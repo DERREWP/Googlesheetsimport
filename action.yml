@@ -33,6 +33,14 @@ inputs:
     description: "Current deployment tag"
     required: false
     default: ""
+  tag-suffix:
+    description: "Environment tag suffix for auto-detecting previous tag (e.g., int, stage, prod). When provided with head-tag but without base-tag, finds the previous tag matching *-{suffix}."
+    required: false
+    default: ""
+  jira-base-url:
+    description: "Base URL for Jira ticket links (e.g., https://jira.visma.com/browse). Tickets will be hyperlinked in the sheet."
+    required: false
+    default: "https://jira.visma.com/browse"
   jira-tickets:
     description: "Comma-separated Jira tickets (e.g., ADV-123,ADV-456)"
     required: false

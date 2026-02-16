@@ -2,6 +2,19 @@ import * as core from "@actions/core";
 import { getPRInfo } from "./github";
 import { syncToSheets } from "./sheets";
 
+// Normalize environment names from various conventions to canonical form
+function normalizeEnvironment(env: string): string {
+  const mapping: Record<string, string> = {
+    internal: "internal",
+    internaltest: "internal",
+    int: "internal",
+    stage: "stage",
+    production: "production",
+    prod: "production"
+  };
+  return mapping[env.toLowerCase()] ?? "";
+}
+
 async function run() {
   try {
     // 1. Get inputs
@@ -9,17 +22,21 @@ async function run() {
     const spreadsheetId = core.getInput("spreadsheet-id", { required: true });
     const googleCredentials = core.getInput("google-credentials", { required: true });
     const app = core.getInput("app", { required: true });
-    const environment = core.getInput("environment", { required: true });
+    const environmentRaw = core.getInput("environment", { required: true });
     const version = core.getInput("version") || "";
     const sheetName = core.getInput("sheet-name") || "Next";
     const jiraTickets = core.getInput("jira-tickets") || "";
     const baseTag = core.getInput("base-tag") || "";
     const headTag = core.getInput("head-tag") || "";
+    const tagSuffix = core.getInput("tag-suffix") || "";
+    const jiraBaseUrl = core.getInput("jira-base-url") || "https://jira.visma.com/browse";
 
-    // 2. Validate environment
-    const validEnvs = ["internal", "stage", "production"];
-    if (!validEnvs.includes(environment.toLowerCase())) {
-      core.setFailed(`❌ Invalid environment: "${environment}". Must be: ${validEnvs.join(", ")}`);
+    // 2. Normalize and validate environment
+    const environment = normalizeEnvironment(environmentRaw);
+    if (!environment) {
+      core.setFailed(
+        `❌ Invalid environment: "${environmentRaw}". Must be one of: internal, InternalTest, int, stage, production, prod`
+      );
       return;
     }
 
@@ -33,19 +50,21 @@ async function run() {
     // 4. Hide credentials
     core.setSecret(googleCredentials);
 
-    core.info(`🚀 Environment: ${environment}`);
+    core.info(`🚀 Environment: ${environment} (input: ${environmentRaw})`);
     core.info(`📱 App: ${app}`);
     core.info(`📄 Sheet: ${sheetName}`);
     core.info(`🏷️ Version: ${version || "not provided"}`);
+    if (tagSuffix) core.info(`🏷️ Tag suffix: ${tagSuffix}`);
 
     // 5. Get PR info
     const prInfos = await getPRInfo(
       token,
       app,
-      environment.toLowerCase(),
+      environment,
       jiraTickets,
       baseTag,
-      headTag
+      headTag,
+      tagSuffix
     );
 
     if (prInfos.length === 0) {
@@ -54,7 +73,7 @@ async function run() {
     }
 
     // 6. Sync to Google Sheets
-    await syncToSheets(googleCredentials, spreadsheetId, sheetName, prInfos, version);
+    await syncToSheets(googleCredentials, spreadsheetId, sheetName, prInfos, version, jiraBaseUrl);
   } catch (error) {
     core.setFailed((error as Error).message);
   }

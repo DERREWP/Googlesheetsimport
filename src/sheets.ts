@@ -226,7 +226,8 @@ async function syncPRsToSheet(
   spreadsheetId: string,
   sheetName: string,
   prInfos: PRInfo[],
-  version: string
+  version: string,
+  jiraBaseUrl: string
 ): Promise<void> {
   const range = `${sheetName}!A:K`;
 
@@ -364,7 +365,7 @@ async function syncPRsToSheet(
         requestBody: {
           values: [
             [
-              pr.issue, // A: Issue
+              `=HYPERLINK("${jiraBaseUrl}/${pr.issue}", "${pr.issue}")`, // A: Issue (linked to Jira)
               "In progress", // B: Status
               pr.author, // C: Assignee
               formattedEnv, // D: Environment
@@ -391,7 +392,8 @@ export async function syncToSheets(
   spreadsheetId: string,
   sheetName: string,
   prInfos: PRInfo[],
-  version: string
+  version: string,
+  jiraBaseUrl: string
 ): Promise<void> {
   // 1. Authenticate
   const auth = getAuth(credentials);
@@ -401,7 +403,7 @@ export async function syncToSheets(
   const environment = prInfos[0].environment;
 
   // 3. Update PRs in "Next" sheet
-  await syncPRsToSheet(sheets, spreadsheetId, sheetName, prInfos, version);
+  await syncPRsToSheet(sheets, spreadsheetId, sheetName, prInfos, version, jiraBaseUrl);
 
   // 4. If production: archive and create new cycle
   if (environment === "production") {
