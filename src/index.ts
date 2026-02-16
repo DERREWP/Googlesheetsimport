@@ -3,7 +3,7 @@ import { getPRInfo } from "./github";
 import { syncToSheets } from "./sheets";
 
 // Normalize environment names from various conventions to canonical form
-function normalizeEnvironment(env: string): string {
+export function normalizeEnvironment(env: string): string {
   const mapping: Record<string, string> = {
     internal: "internal",
     internaltest: "internal",

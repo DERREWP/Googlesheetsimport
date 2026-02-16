@@ -3,14 +3,18 @@ import * as github from "@actions/github";
 import { PRInfo } from "./types";
 
 // Extract all Jira tickets from text
-function extractAllJiraTickets(text: string): string[] {
+export function extractAllJiraTickets(text: string): string[] {
   const matches = text.match(/ADV-\d+/gi);
   if (!matches) return [];
   return [...new Set(matches.map((m) => m.toUpperCase()))];
 }
 
 // Option 1: Explicit Jira tickets
-function fromExplicitTickets(jiraTicketsInput: string, app: string, environment: string): PRInfo[] {
+export function fromExplicitTickets(
+  jiraTicketsInput: string,
+  app: string,
+  environment: string
+): PRInfo[] {
   const tickets = jiraTicketsInput
     .split(",")
     .map((t) => t.trim().toUpperCase())

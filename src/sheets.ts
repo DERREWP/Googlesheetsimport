@@ -38,7 +38,7 @@ function getTodayDate(): string {
   return `${year}-${month}-${day}`;
 }
 
-function getUniqueTabName(baseName: string, existingNames: string[]): string {
+export function getUniqueTabName(baseName: string, existingNames: string[]): string {
   if (!existingNames.includes(baseName)) {
     return baseName;
   }
@@ -52,7 +52,7 @@ function getUniqueTabName(baseName: string, existingNames: string[]): string {
 }
 
 // Capitalize environment to match dropdown
-function formatEnvironment(env: string): string {
+export function formatEnvironment(env: string): string {
   const map: Record<string, string> = {
     internal: "Internal",
     stage: "Stage",
@@ -63,7 +63,7 @@ function formatEnvironment(env: string): string {
 
 // Extract Jira issue key from cell value
 // Handles plain text "ADV-123", display text from HYPERLINK, or raw formula '=HYPERLINK("...", "ADV-123")'
-function extractIssueKey(cellValue: string): string | null {
+export function extractIssueKey(cellValue: string): string | null {
   const upper = cellValue.toUpperCase();
 
   // Plain text: "ADV-123"
@@ -81,7 +81,7 @@ function extractIssueKey(cellValue: string): string | null {
 }
 
 // Capitalize app to match dropdown
-function formatApp(app: string): string {
+export function formatApp(app: string): string {
   const map: Record<string, string> = {
     web: "Web",
     admin: "Admin",

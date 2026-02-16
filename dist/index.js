@@ -23926,6 +23926,8 @@ var require_github2 = __commonJS({
       };
     })();
     Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.extractAllJiraTickets = extractAllJiraTickets;
+    exports2.fromExplicitTickets = fromExplicitTickets;
     exports2.getPRInfo = getPRInfo;
     var core2 = __importStar2(require_core());
     var github = __importStar2(require_github());
@@ -46711,6 +46713,10 @@ var require_sheets = __commonJS({
       };
     })();
     Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.getUniqueTabName = getUniqueTabName;
+    exports2.formatEnvironment = formatEnvironment;
+    exports2.extractIssueKey = extractIssueKey;
+    exports2.formatApp = formatApp;
     exports2.syncToSheets = syncToSheets;
     var core2 = __importStar2(require_core());
     var sheets_12 = require_build();
@@ -47044,6 +47050,7 @@ var __importStar = exports && exports.__importStar || /* @__PURE__ */ (function(
   };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.normalizeEnvironment = normalizeEnvironment;
 var core = __importStar(require_core());
 var github_1 = require_github2();
 var sheets_1 = require_sheets();
