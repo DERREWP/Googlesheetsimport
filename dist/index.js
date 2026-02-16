@@ -23947,8 +23947,46 @@ var require_github2 = __commonJS({
         url: ""
       }));
     }
+    async function findPreviousTag(octokit, owner, repo, suffix, excludeTag) {
+      core2.info(`\u{1F50D} Looking for previous tag matching *-${suffix} (excluding ${excludeTag})...`);
+      try {
+        const tags = [];
+        let page = 1;
+        const perPage = 100;
+        while (page <= 3) {
+          const { data: refs } = await octokit.rest.git.listMatchingRefs({
+            owner,
+            repo,
+            ref: `tags/`,
+            per_page: perPage,
+            page
+          });
+          if (refs.length === 0)
+            break;
+          for (const ref of refs) {
+            const tagName = ref.ref.replace("refs/tags/", "");
+            tags.push({ name: tagName, commitSha: ref.object.sha });
+          }
+          if (refs.length < perPage)
+            break;
+          page++;
+        }
+        const suffixPattern = `-${suffix}`;
+        const matchingTags = tags.filter((t2) => t2.name.endsWith(suffixPattern) && t2.name !== excludeTag).sort((a, b) => b.name.localeCompare(a.name));
+        if (matchingTags.length === 0) {
+          core2.info(`\u2139\uFE0F No previous tags found matching *-${suffix}`);
+          return null;
+        }
+        const previousTag = matchingTags[0].name;
+        core2.info(`\u2705 Found previous tag: ${previousTag}`);
+        return previousTag;
+      } catch (error) {
+        core2.warning(`\u26A0\uFE0F Could not search for previous tags: ${error.message}`);
+        return null;
+      }
+    }
     async function fromTagComparison(octokit, owner, repo, baseTag, headTag, app, environment) {
-      var _a, _b;
+      var _a, _b, _c, _d, _e, _f;
       core2.info(`\u{1F50D} Comparing ${baseTag}...${headTag}`);
       const { data: comparison } = await octokit.rest.repos.compareCommits({
         owner,
@@ -23957,6 +23995,27 @@ var require_github2 = __commonJS({
         head: headTag || "HEAD"
       });
       core2.info(`\u{1F4DD} Found ${comparison.commits.length} commits between tags`);
+      if (comparison.commits.length >= 250) {
+        core2.warning(`\u26A0\uFE0F GitHub returned ${comparison.commits.length} commits which may be truncated. Some Jira tickets might be missing.`);
+      }
+      const allTickets = /* @__PURE__ */ new Map();
+      for (const commit of comparison.commits) {
+        const commitMessage = commit.commit.message;
+        const commitTickets = extractAllJiraTickets(commitMessage);
+        for (const ticket of commitTickets) {
+          if (!allTickets.has(ticket)) {
+            allTickets.set(ticket, {
+              issue: ticket,
+              title: commitMessage.split("\n")[0],
+              // First line of commit message
+              author: (_d = (_b = (_a = commit.author) === null || _a === void 0 ? void 0 : _a.login) !== null && _b !== void 0 ? _b : (_c = commit.commit.author) === null || _c === void 0 ? void 0 : _c.name) !== null && _d !== void 0 ? _d : "unknown",
+              environment,
+              app,
+              url: commit.html_url
+            });
+          }
+        }
+      }
       const prNumbers = /* @__PURE__ */ new Set();
       for (const commit of comparison.commits) {
         const prMatch = commit.commit.message.match(/Merge pull request #(\d+)/);
@@ -23969,7 +24028,6 @@ var require_github2 = __commonJS({
         }
       }
       core2.info(`\u{1F517} Found ${prNumbers.size} merged PRs`);
-      const prInfos = [];
       for (const prNumber of prNumbers) {
         try {
           const { data: pr } = await octokit.rest.pulls.get({
@@ -23979,10 +24037,10 @@ var require_github2 = __commonJS({
           });
           const tickets = extractAllJiraTickets(pr.title);
           for (const ticket of tickets) {
-            prInfos.push({
+            allTickets.set(ticket, {
               issue: ticket,
               title: pr.title,
-              author: (_b = (_a = pr.user) === null || _a === void 0 ? void 0 : _a.login) !== null && _b !== void 0 ? _b : "unknown",
+              author: (_f = (_e = pr.user) === null || _e === void 0 ? void 0 : _e.login) !== null && _f !== void 0 ? _f : "unknown",
               environment,
               app,
               url: pr.html_url
@@ -23992,7 +24050,9 @@ var require_github2 = __commonJS({
           core2.warning(`\u26A0\uFE0F Could not fetch PR #${prNumber}`);
         }
       }
-      return prInfos;
+      const results = Array.from(allTickets.values());
+      core2.info(`\u{1F4CB} Total unique Jira tickets found: ${results.length}`);
+      return results;
     }
     async function fromPRContext(octokit, owner, repo, app, environment) {
       var _a;
@@ -24020,11 +24080,22 @@ var require_github2 = __commonJS({
         };
       });
     }
-    async function getPRInfo(token, app, environment, jiraTicketsInput, baseTag, headTag) {
+    async function getPRInfo(token, app, environment, jiraTicketsInput, baseTag, headTag, tagSuffix) {
       const octokit = github.getOctokit(token);
       const { owner, repo } = github.context.repo;
       if (jiraTicketsInput.trim() !== "") {
         return fromExplicitTickets(jiraTicketsInput, app, environment);
+      }
+      if (baseTag.trim() !== "" && headTag.trim() !== "") {
+        return fromTagComparison(octokit, owner, repo, baseTag, headTag, app, environment);
+      }
+      if (headTag.trim() !== "" && tagSuffix.trim() !== "") {
+        const previousTag = await findPreviousTag(octokit, owner, repo, tagSuffix, headTag);
+        if (previousTag) {
+          return fromTagComparison(octokit, owner, repo, previousTag, headTag, app, environment);
+        }
+        core2.warning("\u26A0\uFE0F No previous tag found for auto-detection. This appears to be the first deployment for this environment. No tickets to sync.");
+        return [];
       }
       if (baseTag.trim() !== "") {
         return fromTagComparison(octokit, owner, repo, baseTag, headTag, app, environment);
@@ -46693,6 +46764,17 @@ var require_sheets = __commonJS({
       };
       return (_a = map[env.toLowerCase()]) !== null && _a !== void 0 ? _a : env;
     }
+    function extractIssueKey(cellValue) {
+      const upper = cellValue.toUpperCase();
+      if (upper.startsWith("ADV-")) {
+        return upper;
+      }
+      const formulaMatch = cellValue.match(/HYPERLINK\([^,]+,\s*"(ADV-\d+)"/i);
+      if (formulaMatch) {
+        return formulaMatch[1].toUpperCase();
+      }
+      return null;
+    }
     function formatApp(app) {
       var _a;
       const map = {
@@ -46790,7 +46872,7 @@ var require_sheets = __commonJS({
         core2.info(`\u2705 Set "Last version" (A2) in new "Next" to: ${currentVersion}`);
       }
     }
-    async function syncPRsToSheet(sheets, spreadsheetId, sheetName, prInfos, version) {
+    async function syncPRsToSheet(sheets, spreadsheetId, sheetName, prInfos, version, jiraBaseUrl) {
       var _a, _b, _c;
       const range = `${sheetName}!A:K`;
       core2.info(`\u{1F50D} Spreadsheet ID: ${spreadsheetId}`);
@@ -46846,10 +46928,11 @@ var require_sheets = __commonJS({
       for (let i2 = dataStartIndex; i2 < existingRows.length; i2++) {
         const row = existingRows[i2];
         const cellValue = (row === null || row === void 0 ? void 0 : row[ISSUE_COL]) ? String(row[ISSUE_COL]).trim() : "";
-        if (cellValue.toUpperCase().startsWith("ADV-")) {
+        const issueKey = extractIssueKey(cellValue);
+        if (issueKey) {
           const sheetRow = i2 + 1;
-          issueRowMap.set(cellValue.toUpperCase(), sheetRow);
-          core2.info(`\u{1F4CD} Found existing: ${cellValue.toUpperCase()} at row ${sheetRow}`);
+          issueRowMap.set(issueKey, sheetRow);
+          core2.info(`\u{1F4CD} Found existing: ${issueKey} at row ${sheetRow}`);
         } else if (cellValue === "" && firstEmptyRow === -1) {
           firstEmptyRow = i2 + 1;
           core2.info(`\u{1F4CD} First empty row: ${firstEmptyRow}`);
@@ -46889,8 +46972,8 @@ var require_sheets = __commonJS({
             requestBody: {
               values: [
                 [
-                  pr.issue,
-                  // A: Issue
+                  `=HYPERLINK("${jiraBaseUrl}/${pr.issue}", "${pr.issue}")`,
+                  // A: Issue (linked to Jira)
                   "In progress",
                   // B: Status
                   pr.author,
@@ -46909,11 +46992,11 @@ var require_sheets = __commonJS({
       }
       core2.info(`\u2705 Done! Added ${newCount} new, updated ${updateCount} existing`);
     }
-    async function syncToSheets(credentials, spreadsheetId, sheetName, prInfos, version) {
+    async function syncToSheets(credentials, spreadsheetId, sheetName, prInfos, version, jiraBaseUrl) {
       const auth = getAuth(credentials);
       const sheets = (0, sheets_12.sheets)({ version: "v4", auth });
       const environment = prInfos[0].environment;
-      await syncPRsToSheet(sheets, spreadsheetId, sheetName, prInfos, version);
+      await syncPRsToSheet(sheets, spreadsheetId, sheetName, prInfos, version, jiraBaseUrl);
       if (environment === "production") {
         await handleProductionCycle(sheets, spreadsheetId, sheetName);
       }
@@ -46964,21 +47047,35 @@ Object.defineProperty(exports, "__esModule", { value: true });
 var core = __importStar(require_core());
 var github_1 = require_github2();
 var sheets_1 = require_sheets();
+function normalizeEnvironment(env) {
+  var _a;
+  const mapping = {
+    internal: "internal",
+    internaltest: "internal",
+    int: "internal",
+    stage: "stage",
+    production: "production",
+    prod: "production"
+  };
+  return (_a = mapping[env.toLowerCase()]) !== null && _a !== void 0 ? _a : "";
+}
 async function run() {
   try {
     const token = core.getInput("github-token", { required: true });
     const spreadsheetId = core.getInput("spreadsheet-id", { required: true });
     const googleCredentials = core.getInput("google-credentials", { required: true });
     const app = core.getInput("app", { required: true });
-    const environment = core.getInput("environment", { required: true });
+    const environmentRaw = core.getInput("environment", { required: true });
     const version = core.getInput("version") || "";
     const sheetName = core.getInput("sheet-name") || "Next";
     const jiraTickets = core.getInput("jira-tickets") || "";
     const baseTag = core.getInput("base-tag") || "";
     const headTag = core.getInput("head-tag") || "";
-    const validEnvs = ["internal", "stage", "production"];
-    if (!validEnvs.includes(environment.toLowerCase())) {
-      core.setFailed(`\u274C Invalid environment: "${environment}". Must be: ${validEnvs.join(", ")}`);
+    const tagSuffix = core.getInput("tag-suffix") || "";
+    const jiraBaseUrl = core.getInput("jira-base-url") || "https://jira.visma.com/browse";
+    const environment = normalizeEnvironment(environmentRaw);
+    if (!environment) {
+      core.setFailed(`\u274C Invalid environment: "${environmentRaw}". Must be one of: internal, InternalTest, int, stage, production, prod`);
       return;
     }
     const validApps = ["web", "admin", "cm"];
@@ -46987,16 +47084,18 @@ async function run() {
       return;
     }
     core.setSecret(googleCredentials);
-    core.info(`\u{1F680} Environment: ${environment}`);
+    core.info(`\u{1F680} Environment: ${environment} (input: ${environmentRaw})`);
     core.info(`\u{1F4F1} App: ${app}`);
     core.info(`\u{1F4C4} Sheet: ${sheetName}`);
     core.info(`\u{1F3F7}\uFE0F Version: ${version || "not provided"}`);
-    const prInfos = await (0, github_1.getPRInfo)(token, app, environment.toLowerCase(), jiraTickets, baseTag, headTag);
+    if (tagSuffix)
+      core.info(`\u{1F3F7}\uFE0F Tag suffix: ${tagSuffix}`);
+    const prInfos = await (0, github_1.getPRInfo)(token, app, environment, jiraTickets, baseTag, headTag, tagSuffix);
     if (prInfos.length === 0) {
       core.info("\u2139\uFE0F No Jira tickets found. Nothing to sync.");
       return;
     }
-    await (0, sheets_1.syncToSheets)(googleCredentials, spreadsheetId, sheetName, prInfos, version);
+    await (0, sheets_1.syncToSheets)(googleCredentials, spreadsheetId, sheetName, prInfos, version, jiraBaseUrl);
   } catch (error) {
     core.setFailed(error.message);
   }

@@ -61,6 +61,25 @@ function formatEnvironment(env: string): string {
   return map[env.toLowerCase()] ?? env;
 }
 
+// Extract Jira issue key from cell value
+// Handles plain text "ADV-123", display text from HYPERLINK, or raw formula '=HYPERLINK("...", "ADV-123")'
+function extractIssueKey(cellValue: string): string | null {
+  const upper = cellValue.toUpperCase();
+
+  // Plain text: "ADV-123"
+  if (upper.startsWith("ADV-")) {
+    return upper;
+  }
+
+  // Raw formula: =HYPERLINK("...", "ADV-123")
+  const formulaMatch = cellValue.match(/HYPERLINK\([^,]+,\s*"(ADV-\d+)"/i);
+  if (formulaMatch) {
+    return formulaMatch[1].toUpperCase();
+  }
+
+  return null;
+}
+
 // Capitalize app to match dropdown
 function formatApp(app: string): string {
   const map: Record<string, string> = {
@@ -308,11 +327,13 @@ async function syncPRsToSheet(
     const row = existingRows[i];
     const cellValue = row?.[ISSUE_COL] ? String(row[ISSUE_COL]).trim() : "";
 
-    if (cellValue.toUpperCase().startsWith("ADV-")) {
+    // Extract issue key - handles both plain text "ADV-123" and HYPERLINK formulas
+    const issueKey = extractIssueKey(cellValue);
+    if (issueKey) {
       // Existing issue
       const sheetRow = i + 1;
-      issueRowMap.set(cellValue.toUpperCase(), sheetRow);
-      core.info(`📍 Found existing: ${cellValue.toUpperCase()} at row ${sheetRow}`);
+      issueRowMap.set(issueKey, sheetRow);
+      core.info(`📍 Found existing: ${issueKey} at row ${sheetRow}`);
     } else if (cellValue === "" && firstEmptyRow === -1) {
       // First empty row (pre-formatted with dropdowns)
       firstEmptyRow = i + 1;

@@ -109,6 +109,13 @@ async function fromTagComparison(
 
   core.info(`📝 Found ${comparison.commits.length} commits between tags`);
 
+  // Warn if the comparison might be truncated (GitHub API caps at 250 commits)
+  if (comparison.commits.length >= 250) {
+    core.warning(
+      `⚠️ GitHub returned ${comparison.commits.length} commits which may be truncated. Some Jira tickets might be missing.`
+    );
+  }
+
   // Collect all Jira tickets from commit messages directly
   const allTickets = new Map<string, PRInfo>();
 
@@ -246,24 +253,10 @@ export async function getPRInfo(
     if (previousTag) {
       return fromTagComparison(octokit, owner, repo, previousTag, headTag, app, environment);
     }
-    core.info(
-      "ℹ️ No previous tag found for auto-detection. Will compare all commits up to head tag."
+    core.warning(
+      "⚠️ No previous tag found for auto-detection. This appears to be the first deployment for this environment. No tickets to sync."
     );
-    // Fall through: compare from repository start to head-tag
-    // Use the GitHub API to get the first commit
-    try {
-      const { data: commits } = await octokit.rest.repos.listCommits({
-        owner,
-        repo,
-        per_page: 1,
-        direction: "asc" as const
-      });
-      if (commits.length > 0) {
-        return fromTagComparison(octokit, owner, repo, commits[0].sha, headTag, app, environment);
-      }
-    } catch {
-      core.warning("⚠️ Could not determine first commit for full comparison");
-    }
+    return [];
   }
 
   // Priority 4: Head tag with explicit base tag (base empty means compare from beginning)
